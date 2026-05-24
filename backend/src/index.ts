@@ -2,6 +2,7 @@ import "dotenv/config";
 import cors from "cors";
 import express from "express";
 import chatRouter from "./routes/chat.js";
+import historyRouter from "./routes/history.js";
 import recallRouter from "./routes/recall.js";
 import snapshotRouter from "./routes/snapshot.js";
 
@@ -22,6 +23,7 @@ app.get("/health", (_req, res) => {
 });
 
 app.use("/chat", chatRouter);
+app.use("/history", historyRouter);
 app.use("/recall", recallRouter);
 app.use("/snapshot", snapshotRouter);
 

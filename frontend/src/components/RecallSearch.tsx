@@ -17,12 +17,17 @@ function normalizeResults(data: unknown): RecallResult[] {
   if (data && typeof data === "object") {
     const maybeResults = data as {
       results?: unknown;
+      facts?: unknown;
       memories?: unknown;
       items?: unknown;
     };
 
     if (Array.isArray(maybeResults.results)) {
       return maybeResults.results as RecallResult[];
+    }
+
+    if (Array.isArray(maybeResults.facts)) {
+      return maybeResults.facts as RecallResult[];
     }
 
     if (Array.isArray(maybeResults.memories)) {
@@ -73,6 +78,7 @@ export function RecallSearch() {
   const [results, setResults] = useState<RecallResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [hasSearched, setHasSearched] = useState(false);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -84,6 +90,7 @@ export function RecallSearch() {
 
     setLoading(true);
     setError("");
+    setHasSearched(true);
 
     try {
       const data = await fetchRecall(value);
@@ -99,6 +106,7 @@ export function RecallSearch() {
   function clearResults() {
     setResults([]);
     setError("");
+    setHasSearched(false);
     setQuery("");
   }
 
@@ -128,7 +136,7 @@ export function RecallSearch() {
             "Recall"
           )}
         </button>
-        {(results.length > 0 || error) && (
+        {(results.length > 0 || error || hasSearched) && (
           <button
             type="button"
             onClick={clearResults}
@@ -140,6 +148,10 @@ export function RecallSearch() {
       </form>
 
       {error ? <p className="mt-2 text-xs text-danger">{error}</p> : null}
+
+      {!loading && !error && hasSearched && results.length === 0 ? (
+        <p className="mt-2 text-xs text-muted">No matching memories found.</p>
+      ) : null}
 
       {results.length > 0 ? (
         <div className="mt-3 max-h-52 space-y-2 overflow-y-auto pr-1">

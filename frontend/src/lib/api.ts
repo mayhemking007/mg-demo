@@ -1,5 +1,5 @@
 import axios from "axios";
-import type { ChatResponse, GraphSnapshot } from "../types";
+import type { ChatResponse, GraphSnapshot, Message } from "../types";
 import { getBrowserId, getSessionId } from "./session";
 
 const client = axios.create({
@@ -22,6 +22,14 @@ export async function fetchSnapshot(): Promise<GraphSnapshot> {
   });
 
   return data;
+}
+
+export async function fetchHistory(): Promise<Message[]> {
+  const { data } = await client.get<{ messages: Message[] }>("/history", {
+    params: { sessionId: getSessionId() },
+  });
+
+  return data.messages;
 }
 
 export async function fetchRecall(query: string): Promise<unknown> {

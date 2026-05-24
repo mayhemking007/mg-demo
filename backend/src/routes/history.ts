@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { getPersistedSnapshot } from "../sessionStore.js";
+import { getSessionHistory } from "../sessionStore.js";
 
 const router = Router();
 
@@ -12,10 +12,10 @@ router.get("/", async (req, res) => {
   }
 
   try {
-    const snapshot = await getPersistedSnapshot(sessionId);
-    res.json(snapshot);
+    const messages = await getSessionHistory(sessionId);
+    res.json({ messages });
   } catch (err) {
-    console.error("Snapshot error:", err);
+    console.error("History error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });

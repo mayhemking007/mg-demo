@@ -2,10 +2,8 @@ import { useEffect, useState } from "react";
 import { AxiosError } from "axios";
 import { ChatPanel } from "./components/ChatPanel";
 import { GraphPanel } from "./components/GraphPanel";
-import { MemoryPanel } from "./components/MemoryPanel";
-import { RecallSearch } from "./components/RecallSearch";
 import { StatusBar } from "./components/StatusBar";
-import { fetchSnapshot, sendMessage } from "./lib/api";
+import { fetchHistory, fetchSnapshot, sendMessage } from "./lib/api";
 import type { GraphSnapshot, Message } from "./types";
 
 const DAILY_LIMIT = parseInt(import.meta.env.VITE_DAILY_LIMIT ?? "10", 10);
@@ -24,8 +22,24 @@ export default function App() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    fetchSnapshot()
-      .then(setSnapshot)
+    Promise.allSettled([fetchSnapshot(), fetchHistory()])
+      .then(([snapshotResult, historyResult]) => {
+        if (snapshotResult.status === "fulfilled") {
+          setSnapshot(snapshotResult.value);
+        } else {
+          setSnapshot({
+            sessionId: "",
+            nodes: [],
+            edges: [],
+            memories: [],
+            capturedAt: new Date().toISOString(),
+          });
+        }
+
+        if (historyResult.status === "fulfilled") {
+          setMessages(historyResult.value);
+        }
+      })
       .catch(() => {
         setSnapshot({
           sessionId: "",
@@ -90,7 +104,11 @@ export default function App() {
       <StatusBar remaining={remaining} limit={DAILY_LIMIT} />
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
-        <div className="min-h-0 flex-1 border-b border-border lg:w-1/2 lg:border-b-0 lg:border-r">
+        <div className="min-h-[28rem] flex-1 border-b border-border lg:w-2/3 lg:border-b-0 lg:border-r">
+          <GraphPanel snapshot={snapshot} />
+        </div>
+
+        <div className="min-h-0 flex-1 lg:w-1/3">
           <ChatPanel
             messages={messages}
             onSend={handleSend}
@@ -98,18 +116,6 @@ export default function App() {
             resetAt={resetAt}
             loading={loading}
           />
-        </div>
-
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:w-1/2">
-          <div className="shrink-0 border-b border-border p-3">
-            <RecallSearch />
-          </div>
-          <div className="min-h-0 flex-1 overflow-y-auto border-b border-border p-3">
-            <MemoryPanel memories={snapshot?.memories ?? []} />
-          </div>
-          <div className="h-64 shrink-0 border-t border-border">
-            <GraphPanel snapshot={snapshot} />
-          </div>
         </div>
       </div>
     </div>

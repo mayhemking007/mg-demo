@@ -2,9 +2,31 @@ import {
   MemoGrafterAgent,
   OpenAIEmbedAdapter,
   OpenAILLMAdapter,
+  type GraphSnapshot,
+  type Message,
 } from "memo-grafter";
 
 const sessions = new Map<string, MemoGrafterAgent>();
+
+interface AgentInternals {
+  sessionId: string;
+  history: Message[];
+  core: {
+    store: {
+      getBufferMessages(
+        sessionId: string,
+        start: number,
+        end: number,
+        maxChars?: number,
+      ): Promise<Message[]>;
+      getNodesBySession(sessionId: string): Promise<GraphSnapshot["nodes"]>;
+      getEdgesBySession(sessionId: string): Promise<GraphSnapshot["edges"]>;
+      getMemoriesBySession(
+        sessionId: string,
+      ): Promise<GraphSnapshot["memories"]>;
+    };
+  };
+}
 
 export async function getOrCreateAgent(
   sessionId: string,
@@ -36,7 +58,15 @@ been remembered.`,
     },
   });
 
+  (agent as unknown as AgentInternals).sessionId = sessionId;
   await agent.initialize();
+  const internals = agent as unknown as AgentInternals;
+  internals.history = await internals.core.store.getBufferMessages(
+    sessionId,
+    0,
+    1000,
+    4000,
+  );
   sessions.set(sessionId, agent);
   return agent;
 }
@@ -48,4 +78,38 @@ export async function closeAgent(sessionId: string): Promise<void> {
     await agent.close();
     sessions.delete(sessionId);
   }
+}
+
+export async function getSessionHistory(sessionId: string): Promise<Message[]> {
+  const agent = (await getOrCreateAgent(sessionId)) as unknown as AgentInternals;
+  const storedMessages = await agent.core.store.getBufferMessages(
+    sessionId,
+    0,
+    1000,
+    4000,
+  );
+
+  return storedMessages.filter(
+    (message: Message) =>
+      message.role === "user" || message.role === "assistant",
+  );
+}
+
+export async function getPersistedSnapshot(
+  sessionId: string,
+): Promise<GraphSnapshot> {
+  const agent = (await getOrCreateAgent(sessionId)) as unknown as AgentInternals;
+  const [nodes, edges, memories] = await Promise.all([
+    agent.core.store.getNodesBySession(sessionId),
+    agent.core.store.getEdgesBySession(sessionId),
+    agent.core.store.getMemoriesBySession(sessionId),
+  ]);
+
+  return {
+    sessionId,
+    nodes,
+    edges,
+    memories,
+    capturedAt: new Date().toISOString(),
+  };
 }
