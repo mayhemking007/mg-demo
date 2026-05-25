@@ -5,6 +5,12 @@ import type { GraphSnapshot, MemoryNode, TopicEdge, TopicNode } from "../types";
 
 interface GraphPanelProps {
   snapshot: GraphSnapshot | null;
+  title?: string;
+  selectedTopicId?: string | null;
+  graftLabel?: string;
+  grafting?: boolean;
+  onSelectTopic?: (topicId: string | null) => void;
+  onGraftSelected?: () => void;
 }
 
 type GraphNode =
@@ -32,12 +38,14 @@ interface TooltipState {
   y: number;
   title: string;
   body: string;
+  kind: "topic" | "memory";
   meta?: string;
+  expanded?: boolean;
 }
 
 const TOPIC_RADIUS = 44;
-const MEMORY_RADIUS = 17;
-const MEMORY_EDGE_COLOR = "#30363d";
+const MEMORY_RADIUS = 12;
+const MEMORY_EDGE_COLOR = "#39c5cf";
 const TOPIC_COLORS = [
   "#58a6ff",
   "#3fb950",
@@ -61,6 +69,10 @@ function getNodePoint(value: string | number | GraphNode): { x: number; y: numbe
 
 function getTopicColor(topic: TopicNode): string {
   return TOPIC_COLORS[Math.abs(topic.topicOrder) % TOPIC_COLORS.length] ?? "#58a6ff";
+}
+
+function getTopicDisplayNumber(topic: TopicNode): number {
+  return Math.max(0, topic.topicOrder - 1);
 }
 
 function getMemoryColor(memory: MemoryNode): string {
@@ -222,9 +234,35 @@ function memoryTetherForce(topicByMemoryId: Map<string, string>) {
   return force;
 }
 
-export function GraphPanel({ snapshot }: GraphPanelProps) {
+function getTooltipPosition(
+  tooltip: TooltipState,
+  size: { width: number; height: number },
+): { left: number; top: number } {
+  const width = 320;
+  const reservedHeight =
+    tooltip.kind === "topic" && tooltip.body.length > 140 ? 280 : 150;
+
+  return {
+    left: Math.min(tooltip.x, Math.max(12, size.width - width - 16)),
+    top: Math.min(tooltip.y, Math.max(12, size.height - reservedHeight - 16)),
+  };
+}
+
+export function GraphPanel({
+  snapshot,
+  title = "Knowledge graph",
+  selectedTopicId,
+  graftLabel,
+  grafting,
+  onSelectTopic,
+  onGraftSelected,
+}: GraphPanelProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
+  const tooltipCloseTimerRef = useRef<number | null>(null);
+  const zoomBehaviorRef = useRef<d3.ZoomBehavior<SVGSVGElement, unknown> | null>(
+    null,
+  );
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);
   const [resetKey, setResetKey] = useState(0);
@@ -235,6 +273,49 @@ export function GraphPanel({ snapshot }: GraphPanelProps) {
   const graph = useMemo(() => {
     return snapshot ? buildGraph(snapshot) : { nodes: [], links: [], topicByMemoryId: new Map<string, string>() };
   }, [snapshot]);
+
+  function clearTooltipCloseTimer() {
+    if (tooltipCloseTimerRef.current !== null) {
+      window.clearTimeout(tooltipCloseTimerRef.current);
+      tooltipCloseTimerRef.current = null;
+    }
+  }
+
+  function scheduleTooltipClose() {
+    clearTooltipCloseTimer();
+    tooltipCloseTimerRef.current = window.setTimeout(() => {
+      setTooltip(null);
+      tooltipCloseTimerRef.current = null;
+    }, 180);
+  }
+
+  function zoomBy(factor: number) {
+    const svg = svgRef.current;
+    const zoomBehavior = zoomBehaviorRef.current;
+
+    if (!svg || !zoomBehavior) {
+      return;
+    }
+
+    d3.select(svg)
+      .transition()
+      .duration(160)
+      .call(zoomBehavior.scaleBy, factor);
+  }
+
+  function resetView() {
+    const svg = svgRef.current;
+    const zoomBehavior = zoomBehaviorRef.current;
+
+    if (!svg || !zoomBehavior) {
+      return;
+    }
+
+    d3.select(svg)
+      .transition()
+      .duration(160)
+      .call(zoomBehavior.transform, d3.zoomIdentity);
+  }
 
   useEffect(() => {
     const container = containerRef.current;
@@ -283,9 +364,20 @@ export function GraphPanel({ snapshot }: GraphPanelProps) {
     const selection = d3.select(svg);
     selection.selectAll("*").remove();
 
-    const linkLayer = selection.append("g").attr("class", "links");
-    const nodeLayer = selection.append("g").attr("class", "nodes");
-    const labelLayer = selection.append("g").attr("class", "labels");
+    const viewport = selection.append("g").attr("class", "graph-viewport");
+    const linkLayer = viewport.append("g").attr("class", "links");
+    const nodeLayer = viewport.append("g").attr("class", "nodes");
+    const labelLayer = viewport.append("g").attr("class", "labels");
+
+    const zoomBehavior = d3
+      .zoom<SVGSVGElement, unknown>()
+      .scaleExtent([0.45, 2.8])
+      .on("zoom", (event) => {
+        viewport.attr("transform", event.transform.toString());
+      });
+
+    selection.call(zoomBehavior).on("dblclick.zoom", null);
+    zoomBehaviorRef.current = zoomBehavior;
 
     const linkPaths = linkLayer
       .selectAll<SVGPathElement, GraphLink>("path")
@@ -303,6 +395,7 @@ export function GraphPanel({ snapshot }: GraphPanelProps) {
       .join("g")
       .attr("cursor", "grab")
       .on("mouseenter", function (event, node) {
+        clearTooltipCloseTimer();
         const rect = container.getBoundingClientRect();
         const circle = d3.select(this).select<SVGCircleElement>("circle");
 
@@ -310,8 +403,8 @@ export function GraphPanel({ snapshot }: GraphPanelProps) {
           .interrupt()
           .transition()
           .duration(130)
-          .attr("r", node.radius + (isTopicNode(node) ? 8 : 5))
-          .attr("stroke-width", isTopicNode(node) ? 3 : 2.6)
+          .attr("r", node.radius + (isTopicNode(node) ? 8 : 3))
+          .attr("stroke-width", isTopicNode(node) ? 3 : 2.2)
           .attr("filter", "drop-shadow(0 0 10px rgba(88, 166, 255, 0.45))");
 
         if (isTopicNode(node)) {
@@ -320,7 +413,7 @@ export function GraphPanel({ snapshot }: GraphPanelProps) {
             y: event.clientY - rect.top + 12,
             title: node.topic.label,
             body: node.topic.summary || "No summary yet.",
-            meta: `Drift score ${node.topic.driftScore.toFixed(2)}`,
+            kind: "topic",
           });
         } else {
           const config = MEMORY_TYPE_CONFIG[node.memory.memoryType];
@@ -329,8 +422,15 @@ export function GraphPanel({ snapshot }: GraphPanelProps) {
             y: event.clientY - rect.top + 12,
             title: config.label,
             body: `${node.memory.subject}: ${node.memory.value}`,
+            kind: "memory",
             meta: `Confidence ${Math.round(node.memory.confidence * 100)}%`,
           });
+        }
+      })
+      .on("click", (_event, node) => {
+        if (isTopicNode(node)) {
+          _event.stopPropagation();
+          onSelectTopic?.(node.topic.id);
         }
       })
       .on("mousemove", (event) => {
@@ -352,10 +452,10 @@ export function GraphPanel({ snapshot }: GraphPanelProps) {
           .transition()
           .duration(160)
           .attr("r", node.radius)
-          .attr("stroke-width", isTopicNode(node) ? 2.1 : 1.4)
+          .attr("stroke-width", isTopicNode(node) ? 2.1 : 1.2)
           .attr("filter", null);
 
-        setTooltip(null);
+        scheduleTooltipClose();
       });
 
     nodeGroups
@@ -368,7 +468,17 @@ export function GraphPanel({ snapshot }: GraphPanelProps) {
         isTopicNode(node) ? getTopicColor(node.topic) : "#e6edf3",
       )
       .attr("stroke-opacity", (node) => (isTopicNode(node) ? 0.95 : 0.78))
-      .attr("stroke-width", (node) => (isTopicNode(node) ? 2.1 : 1.4));
+      .attr("stroke-width", (node) => (isTopicNode(node) ? 2.1 : 1.2));
+
+    nodeGroups
+      .filter(isTopicNode)
+      .select<SVGCircleElement>("circle")
+      .attr("stroke-width", (node) =>
+        isTopicNode(node) && node.topic.id === selectedTopicId ? 4 : 2.1,
+      )
+      .attr("stroke-dasharray", (node) =>
+        isTopicNode(node) && node.topic.id === selectedTopicId ? "5,3" : null,
+      );
 
     const labels = labelLayer
       .selectAll<SVGTextElement, GraphNode>("text")
@@ -380,12 +490,14 @@ export function GraphPanel({ snapshot }: GraphPanelProps) {
       .attr("font-size", 21)
       .attr("font-weight", 700)
       .attr("pointer-events", "none")
-      .text((node) => String(node.topic.topicOrder));
+      .text((node) => String(getTopicDisplayNumber(node.topic)));
 
     const simulation = d3
       .forceSimulation<GraphNode>(nodes)
-      .alphaDecay(0.035)
-      .velocityDecay(0.58)
+      .alphaMin(0.012)
+      .alphaTarget(0.012)
+      .alphaDecay(0.028)
+      .velocityDecay(0.54)
       .force(
         "link",
         d3
@@ -396,7 +508,9 @@ export function GraphPanel({ snapshot }: GraphPanelProps) {
       )
       .force(
         "charge",
-        d3.forceManyBody<GraphNode>().strength((node) => (isTopicNode(node) ? -125 : -8)),
+        d3
+          .forceManyBody<GraphNode>()
+          .strength((node) => (isTopicNode(node) ? -180 : -28)),
       )
       .force("center", d3.forceCenter(width / 2, height / 2).strength(0.045))
       .force("memory-tether", memoryTetherForce(graph.topicByMemoryId))
@@ -404,8 +518,8 @@ export function GraphPanel({ snapshot }: GraphPanelProps) {
         "collide",
         d3
           .forceCollide<GraphNode>()
-          .radius((node) => (isTopicNode(node) ? TOPIC_RADIUS + 18 : MEMORY_RADIUS + 8))
-          .iterations(2),
+          .radius((node) => (isTopicNode(node) ? TOPIC_RADIUS + 22 : MEMORY_RADIUS + 9))
+          .iterations(3),
       )
       .on("tick", () => {
         linkPaths.attr("d", getLinkPath);
@@ -416,33 +530,42 @@ export function GraphPanel({ snapshot }: GraphPanelProps) {
     const drag = d3
       .drag<SVGGElement, GraphNode>()
       .on("start", (event, node) => {
+        event.sourceEvent?.stopPropagation();
         d3.select(event.sourceEvent.currentTarget).attr("cursor", "grabbing");
         if (!event.active) {
-          simulation.alphaTarget(0.12).restart();
+          simulation.alphaTarget(0.16).restart();
         }
         node.fx = node.x;
         node.fy = node.y;
       })
       .on("drag", (event, node) => {
+        event.sourceEvent?.stopPropagation();
         node.fx = event.x;
         node.fy = event.y;
       })
       .on("end", (event, node) => {
+        event.sourceEvent?.stopPropagation();
         d3.select(event.sourceEvent.currentTarget).attr("cursor", "grab");
         if (!event.active) {
-          simulation.alphaTarget(0);
+          simulation.alpha(0.18).alphaTarget(0.012).restart();
         }
         node.fx = null;
         node.fy = null;
       });
 
     nodeGroups.call(drag);
+    selection.on("click", () => {
+      onSelectTopic?.(null);
+    });
 
     return () => {
       simulation.stop();
+      clearTooltipCloseTimer();
+      selection.on("click", null).on(".zoom", null);
+      zoomBehaviorRef.current = null;
       selection.selectAll("*").remove();
     };
-  }, [graph, resetKey, size]);
+  }, [graph, onSelectTopic, resetKey, selectedTopicId, size]);
 
   if (!snapshot) {
     return (
@@ -475,7 +598,7 @@ export function GraphPanel({ snapshot }: GraphPanelProps) {
       />
 
       <div className="pointer-events-none absolute left-3 top-3 rounded-md border border-border bg-surface/95 px-3 py-2">
-        <div className="text-xs font-semibold text-white">Knowledge graph</div>
+        <div className="text-xs font-semibold text-white">{title}</div>
         <div className="mt-1 text-[11px] text-muted">
           {snapshot.nodes.length} topics / {snapshot.memories.length} memories /{" "}
           {snapshot.edges.length} edges
@@ -489,6 +612,43 @@ export function GraphPanel({ snapshot }: GraphPanelProps) {
       >
         Reset graph
       </button>
+
+      <div className="absolute right-3 top-14 flex overflow-hidden rounded-md border border-border bg-surface/95">
+        <button
+          type="button"
+          onClick={() => zoomBy(1.2)}
+          className="h-8 w-8 border-r border-border text-sm font-bold text-accent transition hover:bg-accent/10"
+          aria-label="Zoom in"
+        >
+          +
+        </button>
+        <button
+          type="button"
+          onClick={() => zoomBy(1 / 1.2)}
+          className="h-8 w-8 border-r border-border text-sm font-bold text-accent transition hover:bg-accent/10"
+          aria-label="Zoom out"
+        >
+          -
+        </button>
+        <button
+          type="button"
+          onClick={resetView}
+          className="h-8 px-2 text-[11px] font-semibold text-muted transition hover:bg-accent/10 hover:text-accent"
+        >
+          Reset view
+        </button>
+      </div>
+
+      {selectedTopicId && graftLabel && onGraftSelected ? (
+        <button
+          type="button"
+          disabled={grafting}
+          onClick={onGraftSelected}
+          className="absolute right-3 top-24 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs font-semibold text-warning transition hover:bg-warning/20 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {grafting ? "Grafting..." : graftLabel}
+        </button>
+      ) : null}
 
       <div className="absolute bottom-3 right-3 rounded-md border border-border bg-surface/95 px-3 py-2">
         <div className="mb-2 text-[11px] font-semibold uppercase text-muted">
@@ -511,21 +671,53 @@ export function GraphPanel({ snapshot }: GraphPanelProps) {
               <span>{config.label}</span>
             </div>
           ))}
+          <div className="flex items-center gap-2 text-[11px] text-muted">
+            <svg width="34" height="8" aria-hidden="true">
+              <line
+                x1="0"
+                y1="4"
+                x2="34"
+                y2="4"
+                stroke={MEMORY_EDGE_COLOR}
+                strokeWidth="2"
+              />
+            </svg>
+            <span>Memory</span>
+          </div>
         </div>
       </div>
 
       {tooltip ? (
         <div
-          className="pointer-events-none absolute z-10 max-w-64 rounded-md border border-border bg-surface px-3 py-2 shadow-xl"
-          style={{
-            left: Math.min(tooltip.x, Math.max(0, size.width - 272)),
-            top: Math.min(tooltip.y, Math.max(0, size.height - 132)),
-          }}
+          className="absolute z-10 max-w-80 rounded-md border border-border bg-surface px-3 py-2 shadow-xl"
+          onMouseEnter={clearTooltipCloseTimer}
+          onMouseLeave={scheduleTooltipClose}
+          style={getTooltipPosition(tooltip, size)}
         >
           <div className="text-xs font-semibold text-white">{tooltip.title}</div>
-          <div className="mt-1 line-clamp-3 text-xs leading-5 text-muted">
+          <div
+            className={`mt-1 text-xs leading-5 text-muted ${
+              tooltip.expanded ? "max-h-48 overflow-y-auto pr-1" : "line-clamp-3"
+            }`}
+          >
             {tooltip.body}
           </div>
+          {tooltip.kind === "topic" &&
+          !tooltip.expanded &&
+          tooltip.body.length > 140 ? (
+            <button
+              type="button"
+              onMouseDown={clearTooltipCloseTimer}
+              onClick={() =>
+                setTooltip((current) =>
+                  current ? { ...current, expanded: true } : current,
+                )
+              }
+              className="mt-2 text-[11px] font-semibold text-accent transition hover:text-white"
+            >
+              Read more
+            </button>
+          ) : null}
           {tooltip.meta ? (
             <div className="mt-2 text-[11px] text-accent">{tooltip.meta}</div>
           ) : null}

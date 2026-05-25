@@ -7,12 +7,13 @@ interface ChatPanelProps {
   remaining: number;
   resetAt: string;
   loading: boolean;
+  rateLimitEnabled: boolean;
 }
 
 const STARTER_PROMPTS = [
-  "We decided to use PostgreSQL for the main database",
-  "I need to fix the rate limiter bug before Friday",
-  "What did we decide about authentication?",
+  "I want to remember that Miles Davis is perfect for quiet Sunday cooking.",
+  "The best tacos we tried had grilled pineapple, smoky salsa, and fresh lime.",
+  "What was the film with the beautiful soundtrack we wanted to watch again?",
 ];
 
 function formatResetTime(resetAt: string): string {
@@ -33,10 +34,11 @@ export function ChatPanel({
   remaining,
   resetAt,
   loading,
+  rateLimitEnabled,
 }: ChatPanelProps) {
   const [draft, setDraft] = useState("");
   const messagesRef = useRef<HTMLDivElement>(null);
-  const limitReached = remaining <= 0;
+  const limitReached = rateLimitEnabled && remaining <= 0;
 
   useEffect(() => {
     const el = messagesRef.current;
@@ -67,11 +69,11 @@ export function ChatPanel({
           <div className="flex h-full flex-col items-center justify-center gap-4 text-center">
             <div>
               <h1 className="text-lg font-semibold text-white">
-                Start building your project memory
+                Start building your memory graph
               </h1>
               <p className="mt-2 max-w-md text-sm leading-6 text-muted">
-                Log a decision, task, bug, or question and the assistant will
-                keep the graph fresh as you work.
+                Log favorite music, food notes, films, or questions and the
+                assistant will keep the graph fresh as you chat.
               </p>
             </div>
             <div className="flex max-w-xl flex-wrap justify-center gap-2">
@@ -160,7 +162,7 @@ export function ChatPanel({
             value={draft}
             disabled={loading || limitReached}
             onChange={(event) => setDraft(event.target.value)}
-            placeholder="Log a decision, bug, task, or question..."
+            placeholder="Log a song, food note, film, or question..."
             className="min-w-0 flex-1 rounded-md border border-border bg-bg px-3 py-2 text-sm text-white outline-none transition placeholder:text-muted focus:border-accent disabled:cursor-not-allowed disabled:opacity-60"
           />
           <button

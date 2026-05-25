@@ -121,7 +121,7 @@ export function RecallSearch() {
             value={query}
             disabled={loading}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Recall decisions, bugs, tasks..."
+            placeholder="Recall songs, meals, films..."
             className="w-full rounded-md border border-border bg-bg px-3 py-2 pl-16 text-sm text-white outline-none transition placeholder:text-muted focus:border-accent disabled:cursor-not-allowed disabled:opacity-60"
           />
         </div>

@@ -4,6 +4,7 @@ import { getOrCreateAgent } from "../sessionStore.js";
 
 const router = Router();
 const DAILY_LIMIT = parseInt(process.env.DAILY_MESSAGE_LIMIT ?? "10", 10);
+const RATE_LIMIT_ENABLED = process.env.RATE_LIMIT_ENABLED === "true";
 
 router.post("/", async (req, res) => {
   const { message, sessionId, browserId } = req.body as {
@@ -19,7 +20,13 @@ router.post("/", async (req, res) => {
     return;
   }
 
-  const rateCheck = checkRateLimit(browserId, DAILY_LIMIT);
+  const rateCheck = RATE_LIMIT_ENABLED
+    ? checkRateLimit(browserId, DAILY_LIMIT)
+    : {
+        allowed: true,
+        remaining: DAILY_LIMIT,
+        resetAt: new Date().toISOString(),
+      };
 
   if (!rateCheck.allowed) {
     res.status(429).json({

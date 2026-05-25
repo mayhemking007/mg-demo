@@ -2,8 +2,10 @@ import "dotenv/config";
 import cors from "cors";
 import express from "express";
 import chatRouter from "./routes/chat.js";
+import graftRouter from "./routes/graft.js";
 import historyRouter from "./routes/history.js";
 import recallRouter from "./routes/recall.js";
+import sessionRouter from "./routes/session.js";
 import snapshotRouter from "./routes/snapshot.js";
 
 const app = express();
@@ -23,10 +25,12 @@ app.get("/health", (_req, res) => {
 });
 
 app.use("/chat", chatRouter);
+app.use("/graft", graftRouter);
 app.use("/history", historyRouter);
 app.use("/recall", recallRouter);
+app.use("/session", sessionRouter);
 app.use("/snapshot", snapshotRouter);
 
 app.listen(PORT, () => {
-  console.log(`Dev Memory Assistant backend running on port ${PORT}`);
+  console.log(`MemoGrafter Playground backend running on port ${PORT}`);
 });

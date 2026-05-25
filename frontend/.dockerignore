@@ -1,0 +1,8 @@
+node_modules
+dist
+.env
+.env.*
+*.tsbuildinfo
+vite-dev.*
+npm-debug.log
+Dockerfile
