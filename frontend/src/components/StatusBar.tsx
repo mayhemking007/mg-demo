@@ -19,7 +19,7 @@ export function StatusBar({
   return (
     <header className="h-12 shrink-0 border-b border-border bg-bg px-4">
       <div className="flex h-full items-center justify-between gap-4">
-        <div className="min-w-0 text-sm font-semibold text-white">
+        <div className="min-w-0 text-lg font-bold text-white">
           MemoGrafter Playground
         </div>
         <div className="hidden items-center gap-2 text-xs text-muted sm:flex">
