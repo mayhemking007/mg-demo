@@ -11,6 +11,13 @@ import postgres from "postgres";
 import { randomUUID } from "node:crypto";
 
 const sessions = new Map<string, MemoGrafterAgent>();
+const graftedTopicSources = new Map<string, Map<string, string>>();
+const EDGE_DISPLAY_PRIORITY: Record<string, number> = {
+  grafted: 4,
+  semantic: 3,
+  reentry: 2,
+  temporal: 1,
+};
 
 interface AgentInternals {
   sessionId: string;
@@ -119,6 +126,9 @@ export async function graftTopicsWithMemories(
   );
 
   const targetStore = (targetAgent as unknown as AgentInternals).core.store;
+  const targetGrafts =
+    graftedTopicSources.get(targetSessionId) ?? new Map<string, string>();
+  graftedTopicSources.set(targetSessionId, targetGrafts);
 
   for (const [index, sourceNode] of sourceNodes.entries()) {
     const graftedNode = graftedNodes[index];
@@ -126,6 +136,8 @@ export async function graftTopicsWithMemories(
     if (!graftedNode) {
       continue;
     }
+
+    targetGrafts.set(graftedNode.id, sourceNode.id);
 
     const sourceMemories = await sourceAgent.core.store.getMemoriesByTopic(
       sourceNode.id,
@@ -204,7 +216,11 @@ export async function getPersistedSnapshot(
     agent.core.store.getEdgesBySession(sessionId),
     agent.core.store.getMemoriesBySession(sessionId),
   ]);
-  const displayEdges = createDisplayEdges(nodes, edges);
+  const displayEdges = createDisplayEdges(
+    nodes,
+    edges,
+    graftedTopicSources.get(sessionId),
+  );
 
   return {
     sessionId,
@@ -218,24 +234,40 @@ export async function getPersistedSnapshot(
 function createDisplayEdges(
   nodes: GraphSnapshot["nodes"],
   edges: GraphSnapshot["edges"],
+  graftedSources?: Map<string, string>,
 ): GraphSnapshot["edges"] {
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
-  const displayEdges: GraphSnapshot["edges"] = [];
-  const seen = new Set<string>();
+  const edgeByPair = new Map<string, GraphSnapshot["edges"][number]>();
+
+  for (const [graftedNodeId, sourceNodeId] of graftedSources ?? []) {
+    const graftedNode = nodeById.get(graftedNodeId);
+
+    if (!graftedNode) {
+      continue;
+    }
+
+    const closestNode = findClosestTopic(graftedNode, nodes);
+    if (!closestNode) {
+      continue;
+    }
+
+    upsertDisplayEdge(edgeByPair, {
+      srcId: graftedNode.id,
+      dstId: closestNode.id,
+      weight: cosineSimilarity(graftedNode.embedding, closestNode.embedding),
+      type: "grafted",
+    });
+  }
 
   for (const edge of edges) {
     if (edge.type !== "grafted") {
       if (nodeById.has(edge.srcId) && nodeById.has(edge.dstId)) {
-        const key = `${edge.srcId}:${edge.dstId}:${edge.type}`;
-        if (!seen.has(key)) {
-          seen.add(key);
-          displayEdges.push(edge);
-        }
+        upsertDisplayEdge(edgeByPair, edge);
       }
       continue;
     }
 
-    const localNode = nodeById.get(edge.srcId) ?? nodeById.get(edge.dstId);
+    const localNode = nodeById.get(edge.srcId);
     if (!localNode) {
       continue;
     }
@@ -245,19 +277,35 @@ function createDisplayEdges(
       continue;
     }
 
-    const key = `${localNode.id}:${closestNode.id}:grafted`;
-    if (!seen.has(key)) {
-      seen.add(key);
-      displayEdges.push({
+    upsertDisplayEdge(edgeByPair, {
         srcId: localNode.id,
         dstId: closestNode.id,
         weight: cosineSimilarity(localNode.embedding, closestNode.embedding),
         type: "grafted",
       });
-    }
   }
 
-  return displayEdges;
+  return [...edgeByPair.values()];
+}
+
+function upsertDisplayEdge(
+  edgeByPair: Map<string, GraphSnapshot["edges"][number]>,
+  edge: GraphSnapshot["edges"][number],
+): void {
+  const pairKey = createPairKey(edge.srcId, edge.dstId);
+  const existing = edgeByPair.get(pairKey);
+
+  if (!existing || edgePriority(edge) > edgePriority(existing)) {
+    edgeByPair.set(pairKey, edge);
+  }
+}
+
+function createPairKey(srcId: string, dstId: string): string {
+  return [srcId, dstId].sort().join(":");
+}
+
+function edgePriority(edge: GraphSnapshot["edges"][number]): number {
+  return EDGE_DISPLAY_PRIORITY[edge.type] ?? 0;
 }
 
 function findClosestTopic(

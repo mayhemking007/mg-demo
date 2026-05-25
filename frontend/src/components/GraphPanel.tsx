@@ -46,6 +46,7 @@ interface TooltipState {
 const TOPIC_RADIUS = 44;
 const MEMORY_RADIUS = 12;
 const MEMORY_EDGE_COLOR = "#39c5cf";
+const DEFAULT_ZOOM_SCALE = 0.82;
 const TOPIC_COLORS = [
   "#58a6ff",
   "#3fb950",
@@ -248,6 +249,12 @@ function getTooltipPosition(
   };
 }
 
+function getDefaultZoomTransform(width: number, height: number): d3.ZoomTransform {
+  return d3.zoomIdentity
+    .translate((width * (1 - DEFAULT_ZOOM_SCALE)) / 2, (height * (1 - DEFAULT_ZOOM_SCALE)) / 2)
+    .scale(DEFAULT_ZOOM_SCALE);
+}
+
 export function GraphPanel({
   snapshot,
   title = "Knowledge graph",
@@ -314,7 +321,7 @@ export function GraphPanel({
     d3.select(svg)
       .transition()
       .duration(160)
-      .call(zoomBehavior.transform, d3.zoomIdentity);
+      .call(zoomBehavior.transform, getDefaultZoomTransform(size.width, size.height));
   }
 
   useEffect(() => {
@@ -376,7 +383,10 @@ export function GraphPanel({
         viewport.attr("transform", event.transform.toString());
       });
 
-    selection.call(zoomBehavior).on("dblclick.zoom", null);
+    selection
+      .call(zoomBehavior)
+      .call(zoomBehavior.transform, getDefaultZoomTransform(width, height))
+      .on("dblclick.zoom", null);
     zoomBehaviorRef.current = zoomBehavior;
 
     const linkPaths = linkLayer
