@@ -1,5 +1,7 @@
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
 import type { Message } from "../types";
+
+const MAX_COMPOSER_HEIGHT = 112;
 
 interface ChatPanelProps {
   messages: Message[];
@@ -38,6 +40,7 @@ export function ChatPanel({
 }: ChatPanelProps) {
   const [draft, setDraft] = useState("");
   const messagesRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const limitReached = rateLimitEnabled && remaining <= 0;
 
   useEffect(() => {
@@ -46,6 +49,18 @@ export function ChatPanel({
       el.scrollTop = el.scrollHeight;
     }
   }, [messages, loading]);
+
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) {
+      return;
+    }
+
+    el.style.height = "0px";
+    el.style.height = `${Math.min(el.scrollHeight, MAX_COMPOSER_HEIGHT)}px`;
+    el.style.overflowY =
+      el.scrollHeight > MAX_COMPOSER_HEIGHT ? "auto" : "hidden";
+  }, [draft]);
 
   function submitMessage(value: string) {
     const message = value.trim();
@@ -60,6 +75,13 @@ export function ChatPanel({
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     submitMessage(draft);
+  }
+
+  function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      submitMessage(draft);
+    }
   }
 
   return (
@@ -158,22 +180,26 @@ export function ChatPanel({
           </div>
         ) : null}
         <div className="flex gap-2">
-          <input
+          <textarea
+            ref={textareaRef}
             value={draft}
             disabled={loading || limitReached}
             onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={handleKeyDown}
+            rows={1}
             placeholder="Log a song, food note, film, or question..."
-            className="min-w-0 flex-1 rounded-md border border-border bg-bg px-3 py-2 text-sm text-white outline-none transition placeholder:text-muted focus:border-accent disabled:cursor-not-allowed disabled:opacity-60"
+            className="max-h-28 min-h-10 min-w-0 flex-1 resize-none rounded-md border border-border bg-bg px-3 py-2 text-sm leading-5 text-white outline-none transition placeholder:text-muted focus:border-accent disabled:cursor-not-allowed disabled:opacity-60"
           />
           <button
             type="submit"
             disabled={!draft.trim() || loading || limitReached}
-            className="inline-flex min-w-20 items-center justify-center rounded-md bg-accent px-4 py-2 text-sm font-semibold text-bg transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center self-end rounded-full bg-accent text-bg transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-50"
+            aria-label="Send message"
           >
             {loading ? (
               <span className="h-4 w-4 animate-spin rounded-full border-2 border-bg/30 border-t-bg" />
             ) : (
-              "Send"
+              <span className="text-xl font-bold leading-none">↑</span>
             )}
           </button>
         </div>
