@@ -9,6 +9,8 @@ The current demo uses light everyday prompts around music, food, and film so it
 is easy to generate a readable memory graph without typing a long technical
 conversation.
 
+> **Live Demo:** Check out the Playground [here](https://mgplayground-green.vercel.app/).
+
 ## What The App Does
 
 - Runs two independent memory sessions side by side.
