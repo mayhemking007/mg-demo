@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { AxiosError } from "axios";
 import { ChatPanel } from "./components/ChatPanel";
-import { GraphPanel } from "./components/GraphPanel";
+import { GraphPanel, getTopicDisplayNumberById } from "./components/GraphPanel";
 import { StatusBar } from "./components/StatusBar";
 import {
   clearSession,
@@ -316,8 +316,11 @@ export default function App() {
     const selectedTopic = session.snapshot?.nodes.find(
       (node) => node.id === session.selectedTopicId,
     );
+    const topicDisplayNumberById = getTopicDisplayNumberById(
+      session.snapshot?.nodes ?? [],
+    );
     const selectedNodeLabel = selectedTopic
-      ? `Node ${Math.max(0, selectedTopic.topicOrder - 1)}`
+      ? `Node ${topicDisplayNumberById.get(selectedTopic.id) ?? 0}`
       : "Node";
 
     return (

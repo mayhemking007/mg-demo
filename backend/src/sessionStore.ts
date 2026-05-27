@@ -5,23 +5,33 @@ import {
   type GraphSnapshot,
   type MemoryNode,
   type Message,
+  type TopicEdge,
   type TopicNode,
+  type TopicSegment,
 } from "memo-grafter";
 import postgres from "postgres";
 import { randomUUID } from "node:crypto";
 
 const sessions = new Map<string, MemoGrafterAgent>();
 const graftedTopicSources = new Map<string, Map<string, string>>();
+const appSql = postgres(process.env.DATABASE_URL!, {
+  max: 2,
+  idle_timeout: 30,
+  connect_timeout: 10,
+});
+let graftTableReady: Promise<void> | null = null;
 const EDGE_DISPLAY_PRIORITY: Record<string, number> = {
   grafted: 4,
   semantic: 3,
   reentry: 2,
   temporal: 1,
 };
+const GRAFT_SEGMENT_BASE_INDEX = 1_000_000;
 
 interface AgentInternals {
   sessionId: string;
   history: Message[];
+  pendingIngest: Promise<void>;
   core: {
     store: {
       getBufferMessages(
@@ -46,9 +56,32 @@ interface AgentInternals {
         topicNodeId: string,
         sessionId?: string,
       ): Promise<GraphSnapshot["nodes"][number] | null>;
+      saveSegment(segment: TopicSegment): Promise<TopicSegment>;
+      saveNode(node: TopicNode): Promise<void>;
+      saveEdge(edge: TopicEdge): Promise<void>;
       clearSession(sessionId: string): Promise<void>;
     };
   };
+}
+
+interface StoredTopicNode extends Omit<TopicNode, "createdAt"> {
+  createdAt: string;
+}
+
+interface StoredMemoryNode extends Omit<MemoryNode, "createdAt"> {
+  createdAt: string;
+}
+
+interface GraftRecord {
+  id: string;
+  targetSessionId: string;
+  sourceSessionId: string;
+  sourceTopicId: string;
+  targetTopicId: string;
+  targetSegmentId: string;
+  topicPayload: StoredTopicNode;
+  memoriesPayload: StoredMemoryNode[];
+  createdAt: Date;
 }
 
 export async function getOrCreateAgent(
@@ -156,6 +189,15 @@ export async function graftTopicsWithMemories(
 
     await targetStore.insertMemories(copiedMemories);
     await targetStore.buildMemoryEdges(graftedNode.id, targetSessionId, 0.65);
+    await saveGraftRecord({
+      sourceSessionId,
+      targetSessionId,
+      sourceTopicId: sourceNode.id,
+      targetTopicId: graftedNode.id,
+      targetSegmentId: graftedNode.segmentId,
+      topic: graftedNode,
+      memories: copiedMemories,
+    });
   }
 
   return graftedNodes;
@@ -165,6 +207,7 @@ export async function clearPersistedSession(sessionId: string): Promise<void> {
   const agent = (await getOrCreateAgent(sessionId)) as unknown as AgentInternals;
 
   await agent.core.store.clearSession(sessionId);
+  await deleteGraftRecordsForTarget(sessionId);
   await deleteMessageBuffer(sessionId);
   agent.history = [];
 
@@ -211,6 +254,9 @@ export async function getPersistedSnapshot(
   sessionId: string,
 ): Promise<GraphSnapshot> {
   const agent = (await getOrCreateAgent(sessionId)) as unknown as AgentInternals;
+  await waitForAgentIngest(agent);
+  await restoreGraftsForSession(sessionId);
+
   const [nodes, edges, memories] = await Promise.all([
     agent.core.store.getNodesBySession(sessionId),
     agent.core.store.getEdgesBySession(sessionId),
@@ -229,6 +275,239 @@ export async function getPersistedSnapshot(
     memories,
     capturedAt: new Date().toISOString(),
   };
+}
+
+export async function restoreGraftsForSession(sessionId: string): Promise<void> {
+  const agent = (await getOrCreateAgent(sessionId)) as unknown as AgentInternals;
+  await waitForAgentIngest(agent);
+  await ensureGraftTable();
+
+  const records = await getGraftRecords(sessionId);
+  const targetGrafts = new Map<string, string>();
+  graftedTopicSources.set(sessionId, targetGrafts);
+
+  if (records.length === 0) {
+    return;
+  }
+
+  const store = agent.core.store;
+  const nodes = await store.getNodesBySession(sessionId);
+  const nodeIds = new Set(nodes.map((node) => node.id));
+
+  for (const record of records) {
+    targetGrafts.set(record.targetTopicId, record.sourceTopicId);
+
+    if (!nodeIds.has(record.targetTopicId)) {
+      const segment = toTopicSegment(record);
+      await store.saveSegment(segment);
+      await store.saveNode(toTopicNode(record.topicPayload, segment.id));
+      nodeIds.add(record.targetTopicId);
+    }
+
+    await restoreMissingMemories(record);
+    await store.buildMemoryEdges(record.targetTopicId, sessionId, 0.65);
+  }
+}
+
+async function waitForAgentIngest(agent: AgentInternals): Promise<void> {
+  await agent.pendingIngest;
+}
+
+async function ensureGraftTable(): Promise<void> {
+  graftTableReady ??= appSql`
+    CREATE TABLE IF NOT EXISTS dma_grafts (
+      id UUID PRIMARY KEY,
+      target_session_id TEXT NOT NULL,
+      source_session_id TEXT NOT NULL,
+      source_topic_id TEXT NOT NULL,
+      target_topic_id TEXT NOT NULL,
+      target_segment_id TEXT NOT NULL,
+      topic_payload JSONB NOT NULL,
+      memories_payload JSONB NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (target_session_id, source_topic_id)
+    )
+  `.then(async () => {
+    await appSql`
+      CREATE INDEX IF NOT EXISTS dma_grafts_target_session_idx
+      ON dma_grafts (target_session_id)
+    `;
+  });
+
+  await graftTableReady;
+}
+
+async function saveGraftRecord(input: {
+  sourceSessionId: string;
+  targetSessionId: string;
+  sourceTopicId: string;
+  targetTopicId: string;
+  targetSegmentId: string;
+  topic: TopicNode;
+  memories: Omit<MemoryNode, "createdAt">[];
+}): Promise<void> {
+  await ensureGraftTable();
+
+  await appSql`
+    INSERT INTO dma_grafts (
+      id,
+      target_session_id,
+      source_session_id,
+      source_topic_id,
+      target_topic_id,
+      target_segment_id,
+      topic_payload,
+      memories_payload
+    )
+    VALUES (
+      ${randomUUID()},
+      ${input.targetSessionId},
+      ${input.sourceSessionId},
+      ${input.sourceTopicId},
+      ${input.targetTopicId},
+      ${input.targetSegmentId},
+      ${appSql.json(serializeTopic(input.topic) as never)},
+      ${appSql.json(input.memories.map(serializeMemoryInsert) as never)}
+    )
+    ON CONFLICT (target_session_id, source_topic_id)
+    DO UPDATE SET
+      target_topic_id = EXCLUDED.target_topic_id,
+      target_segment_id = EXCLUDED.target_segment_id,
+      topic_payload = EXCLUDED.topic_payload,
+      memories_payload = EXCLUDED.memories_payload,
+      created_at = NOW()
+  `;
+}
+
+async function getGraftRecords(sessionId: string): Promise<GraftRecord[]> {
+  await ensureGraftTable();
+
+  const rows = await appSql`
+    SELECT *
+    FROM dma_grafts
+    WHERE target_session_id = ${sessionId}
+    ORDER BY created_at ASC
+  `;
+
+  return rows.map((row) => ({
+    id: row.id,
+    targetSessionId: row.target_session_id,
+    sourceSessionId: row.source_session_id,
+    sourceTopicId: row.source_topic_id,
+    targetTopicId: row.target_topic_id,
+    targetSegmentId: row.target_segment_id,
+    topicPayload: row.topic_payload,
+    memoriesPayload: row.memories_payload,
+    createdAt: row.created_at,
+  }));
+}
+
+async function deleteGraftRecordsForTarget(sessionId: string): Promise<void> {
+  await ensureGraftTable();
+  await appSql`
+    DELETE FROM dma_grafts
+    WHERE target_session_id = ${sessionId}
+  `;
+  graftedTopicSources.delete(sessionId);
+}
+
+async function restoreMissingMemories(record: GraftRecord): Promise<void> {
+  if (record.memoriesPayload.length === 0) {
+    return;
+  }
+
+  const existingRows = await appSql`
+    SELECT id
+    FROM mg_memory_nodes
+    WHERE id::text = ANY(${appSql.array(record.memoriesPayload.map((memory) => memory.id))})
+  `;
+  const existingIds = new Set(existingRows.map((row) => String(row.id)));
+  const missingMemories = record.memoriesPayload
+    .filter((memory) => !existingIds.has(memory.id))
+    .map((memory) => ({
+      ...toMemoryInsert(memory, record.targetSegmentId, record.targetTopicId),
+      segmentId: record.targetSegmentId,
+      topicNodeId: record.targetTopicId,
+      sessionId: record.targetSessionId,
+    }));
+
+  if (missingMemories.length === 0) {
+    return;
+  }
+
+  const agent = (await getOrCreateAgent(
+    record.targetSessionId,
+  )) as unknown as AgentInternals;
+  await agent.core.store.insertMemories(missingMemories);
+}
+
+function toTopicSegment(record: GraftRecord): TopicSegment {
+  const topic = record.topicPayload;
+  const createdAt = parseStoredDate(topic.createdAt);
+  const baseRange = Math.abs(hashText(record.targetTopicId)) % 100_000;
+  const startIndex = GRAFT_SEGMENT_BASE_INDEX + baseRange;
+
+  return {
+    id: record.targetSegmentId,
+    sessionId: record.targetSessionId,
+    startIndex,
+    endIndex: startIndex + 1,
+    topicOrder: topic.topicOrder,
+    driftScore: topic.driftScore,
+    createdAt,
+  };
+}
+
+function toTopicNode(topic: StoredTopicNode, segmentId: string): TopicNode {
+  return {
+    ...topic,
+    segmentId,
+    createdAt: parseStoredDate(topic.createdAt),
+  };
+}
+
+function toMemoryInsert(
+  memory: StoredMemoryNode,
+  segmentId: string,
+  topicNodeId: string,
+): Omit<MemoryNode, "createdAt"> {
+  const { createdAt: _createdAt, ...insert } = memory;
+
+  return {
+    ...insert,
+    segmentId,
+    topicNodeId,
+  };
+}
+
+function serializeTopic(topic: TopicNode): StoredTopicNode {
+  return {
+    ...topic,
+    createdAt: topic.createdAt.toISOString(),
+  };
+}
+
+function serializeMemoryInsert(
+  memory: Omit<MemoryNode, "createdAt">,
+): StoredMemoryNode {
+  return {
+    ...memory,
+    createdAt: new Date().toISOString(),
+  };
+}
+
+function parseStoredDate(value: string | Date): Date {
+  return value instanceof Date ? value : new Date(value);
+}
+
+function hashText(value: string): number {
+  let hash = 0;
+
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) | 0;
+  }
+
+  return hash;
 }
 
 function createDisplayEdges(

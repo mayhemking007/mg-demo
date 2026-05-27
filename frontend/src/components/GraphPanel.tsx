@@ -19,6 +19,7 @@ type GraphNode =
       kind: "topic";
       radius: number;
       topic: TopicNode;
+      displayNumber: number;
     })
   | (d3.SimulationNodeDatum & {
       id: string;
@@ -68,12 +69,8 @@ function getNodePoint(value: string | number | GraphNode): { x: number; y: numbe
   return { x: 0, y: 0 };
 }
 
-function getTopicColor(topic: TopicNode): string {
-  return TOPIC_COLORS[Math.abs(topic.topicOrder) % TOPIC_COLORS.length] ?? "#58a6ff";
-}
-
-function getTopicDisplayNumber(topic: TopicNode): number {
-  return Math.max(0, topic.topicOrder - 1);
+function getTopicColor(displayNumber: number): string {
+  return TOPIC_COLORS[Math.abs(displayNumber) % TOPIC_COLORS.length] ?? "#58a6ff";
 }
 
 function getMemoryColor(memory: MemoryNode): string {
@@ -121,6 +118,7 @@ function buildGraph(snapshot: GraphSnapshot): {
   topicByMemoryId: Map<string, string>;
 } {
   const topicIds = new Set(snapshot.nodes.map((node) => node.id));
+  const topicDisplayNumberById = getTopicDisplayNumberById(snapshot.nodes);
   const topicByMemoryId = new Map<string, string>();
   const nodes: GraphNode[] = [
     ...snapshot.nodes.map((topic) => ({
@@ -128,6 +126,7 @@ function buildGraph(snapshot: GraphSnapshot): {
       kind: "topic" as const,
       radius: TOPIC_RADIUS,
       topic,
+      displayNumber: topicDisplayNumberById.get(topic.id) ?? 0,
     })),
     ...snapshot.memories.map((memory) => {
       const memoryId = `memory:${memory.id}`;
@@ -163,6 +162,28 @@ function buildGraph(snapshot: GraphSnapshot): {
     }));
 
   return { nodes, links: [...topicLinks, ...memoryLinks], topicByMemoryId };
+}
+
+export function getTopicDisplayNumberById(
+  topics: TopicNode[],
+): Map<string, number> {
+  return new Map(
+    [...topics]
+      .sort((a, b) => {
+        const orderDelta = a.topicOrder - b.topicOrder;
+        if (orderDelta !== 0) {
+          return orderDelta;
+        }
+
+        const labelDelta = a.label.localeCompare(b.label);
+        if (labelDelta !== 0) {
+          return labelDelta;
+        }
+
+        return a.id.localeCompare(b.id);
+      })
+      .map((topic, index) => [topic.id, index]),
+  );
 }
 
 function seedNodes(nodes: GraphNode[], width: number, height: number) {
@@ -472,10 +493,12 @@ export function GraphPanel({
       .append("circle")
       .attr("r", (node) => node.radius)
       .attr("fill", (node) =>
-        isTopicNode(node) ? `${getTopicColor(node.topic)}33` : getMemoryColor(node.memory),
+        isTopicNode(node)
+          ? `${getTopicColor(node.displayNumber)}33`
+          : getMemoryColor(node.memory),
       )
       .attr("stroke", (node) =>
-        isTopicNode(node) ? getTopicColor(node.topic) : "#e6edf3",
+        isTopicNode(node) ? getTopicColor(node.displayNumber) : "#e6edf3",
       )
       .attr("stroke-opacity", (node) => (isTopicNode(node) ? 0.95 : 0.78))
       .attr("stroke-width", (node) => (isTopicNode(node) ? 2.1 : 1.2));
@@ -500,7 +523,7 @@ export function GraphPanel({
       .attr("font-size", 21)
       .attr("font-weight", 700)
       .attr("pointer-events", "none")
-      .text((node) => String(getTopicDisplayNumber(node.topic)));
+      .text((node) => String(node.displayNumber));
 
     const simulation = d3
       .forceSimulation<GraphNode>(nodes)

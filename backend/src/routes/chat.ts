@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { checkRateLimit } from "../rateLimiter.js";
-import { getOrCreateAgent } from "../sessionStore.js";
+import { getOrCreateAgent, getPersistedSnapshot } from "../sessionStore.js";
 
 const router = Router();
 const DAILY_LIMIT = parseInt(process.env.DAILY_MESSAGE_LIMIT ?? "10", 10);
@@ -40,7 +40,7 @@ router.post("/", async (req, res) => {
   try {
     const agent = await getOrCreateAgent(sessionId);
     const response = await agent.invoke(message);
-    const snapshot = await agent.getGraphSnapshot();
+    const snapshot = await getPersistedSnapshot(sessionId);
 
     res.json({
       response,
