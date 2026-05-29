@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { getOrCreateAgent, restoreGraftsForSession } from "../sessionStore.js";
+import { getOrCreateAgent } from "../sessionStore.js";
 
 const router = Router();
 
@@ -12,7 +12,6 @@ router.get("/", async (req, res) => {
   }
 
   try {
-    await restoreGraftsForSession(sessionId);
     const agent = await getOrCreateAgent(sessionId);
     const result = await agent.recall(q, {
       limit: 8,
