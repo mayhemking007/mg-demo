@@ -1,4 +1,10 @@
-import type { MemoGrafterAgent, Message } from "memo-grafter";
+import type {
+  CrawlerMaintenanceStore,
+  MemoGrafterAgent,
+  MemoryEdge,
+  MemoryNode,
+  Message,
+} from "memo-grafter";
 
 export interface HydratedMemoGrafterAgent {
   sessionId: string;
@@ -6,13 +12,15 @@ export interface HydratedMemoGrafterAgent {
   pendingIngest: Promise<void>;
   core: {
     store: {
+      getMemoriesBySession(sessionId: string): Promise<MemoryNode[]>;
+      getMemoryEdgesBySession(sessionId: string): Promise<MemoryEdge[]>;
       getBufferMessages(
         sessionId: string,
         start: number,
         end: number,
         maxChars?: number,
       ): Promise<Message[]>;
-    };
+    } & CrawlerMaintenanceStore;
   };
 }
 

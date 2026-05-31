@@ -1,5 +1,10 @@
 import axios from "axios";
-import type { ChatResponse, GraphSnapshot, Message } from "../types";
+import type {
+  ChatResponse,
+  GraphSnapshot,
+  MaintenanceResponse,
+  Message,
+} from "../types";
 import { getBrowserId, getSessionId, type SessionSlot } from "./session";
 
 const client = axios.create({
@@ -63,4 +68,14 @@ export async function clearSession(slot: SessionSlot): Promise<void> {
   await client.delete("/session", {
     params: { sessionId: getSessionId(slot) },
   });
+}
+
+export async function runMaintenance(
+  slot: SessionSlot,
+): Promise<MaintenanceResponse> {
+  const { data } = await client.post<MaintenanceResponse>("/maintenance", {
+    sessionId: getSessionId(slot),
+  });
+
+  return data;
 }

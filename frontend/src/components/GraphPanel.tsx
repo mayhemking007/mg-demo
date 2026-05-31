@@ -9,6 +9,9 @@ interface GraphPanelProps {
   selectedTopicId?: string | null;
   graftLabel?: string;
   grafting?: boolean;
+  maintenanceLabel?: string;
+  maintenanceRunning?: boolean;
+  onRunMaintenance?: () => void;
   onSelectTopic?: (topicId: string | null) => void;
   onGraftSelected?: () => void;
 }
@@ -20,17 +23,19 @@ type GraphNode =
       radius: number;
       topic: TopicNode;
       displayNumber: number;
+      state: NodeMaintenanceState;
     })
   | (d3.SimulationNodeDatum & {
       id: string;
       kind: "memory";
       radius: number;
       memory: MemoryNode;
+      state: NodeMaintenanceState;
     });
 
 type GraphLink = d3.SimulationLinkDatum<GraphNode> & {
   id: string;
-  type: TopicEdge["type"] | "memory";
+  type: TopicEdge["type"] | "memory" | "memory-conflict" | "memory-update";
   weight: number;
 };
 
@@ -44,9 +49,17 @@ interface TooltipState {
   expanded?: boolean;
 }
 
+interface NodeMaintenanceState {
+  decayed: boolean;
+  conflict: boolean;
+  versioned: boolean;
+}
+
 const TOPIC_RADIUS = 44;
 const MEMORY_RADIUS = 12;
 const MEMORY_EDGE_COLOR = "#39c5cf";
+const MEMORY_CONFLICT_EDGE_COLOR = "#f85149";
+const MEMORY_UPDATE_EDGE_COLOR = "#bc8cff";
 const DEFAULT_ZOOM_SCALE = 0.82;
 const TOPIC_COLORS = [
   "#58a6ff",
@@ -56,6 +69,12 @@ const TOPIC_COLORS = [
   "#f85149",
   "#39c5cf",
 ];
+
+const EMPTY_NODE_STATE: NodeMaintenanceState = {
+  decayed: false,
+  conflict: false,
+  versioned: false,
+};
 
 function isTopicNode(node: GraphNode): node is Extract<GraphNode, { kind: "topic" }> {
   return node.kind === "topic";
@@ -73,7 +92,11 @@ function getTopicColor(displayNumber: number): string {
   return TOPIC_COLORS[Math.abs(displayNumber) % TOPIC_COLORS.length] ?? "#58a6ff";
 }
 
-function getMemoryColor(memory: MemoryNode): string {
+function getMemoryColor(memory: MemoryNode, state: NodeMaintenanceState): string {
+  if (state.decayed) {
+    return "#30363d";
+  }
+
   return MEMORY_TYPE_CONFIG[memory.memoryType]?.graphColor ?? "#8b949e";
 }
 
@@ -82,11 +105,27 @@ function getLinkColor(link: GraphLink): string {
     return MEMORY_EDGE_COLOR;
   }
 
+  if (link.type === "memory-conflict") {
+    return MEMORY_CONFLICT_EDGE_COLOR;
+  }
+
+  if (link.type === "memory-update") {
+    return MEMORY_UPDATE_EDGE_COLOR;
+  }
+
   return EDGE_TYPE_CONFIG[link.type].color;
 }
 
 function getLinkDash(link: GraphLink): string | null {
+  if (link.type === "memory-conflict") {
+    return "5,4";
+  }
+
   if (link.type === "memory") {
+    return null;
+  }
+
+  if (link.type === "memory-update") {
     return null;
   }
 
@@ -98,7 +137,7 @@ function getLinkPath(link: GraphLink): string {
   const source = getNodePoint(link.source as string | number | GraphNode);
   const target = getNodePoint(link.target as string | number | GraphNode);
 
-  if (link.type !== "reentry") {
+  if (link.type !== "reentry" && link.type !== "memory-conflict") {
     return `M${source.x},${source.y}L${target.x},${target.y}`;
   }
 
@@ -112,6 +151,37 @@ function getLinkPath(link: GraphLink): string {
   return `M${source.x},${source.y}Q${cx},${cy} ${target.x},${target.y}`;
 }
 
+function getLinkTooltip(link: GraphLink): TooltipState | null {
+  if (link.type !== "memory-conflict" && link.type !== "memory-update") {
+    return null;
+  }
+
+  const source = link.source as GraphNode;
+  const target = link.target as GraphNode;
+
+  if (source.kind !== "memory" || target.kind !== "memory") {
+    return null;
+  }
+
+  if (link.type === "memory-conflict") {
+    return {
+      x: 0,
+      y: 0,
+      title: "Conflict",
+      body: `${source.memory.value} conflicts with ${target.memory.value}`,
+      kind: "memory",
+    };
+  }
+
+  return {
+    x: 0,
+    y: 0,
+    title: "Version update",
+    body: `New: ${source.memory.value}\nOld: ${target.memory.value}`,
+    kind: "memory",
+  };
+}
+
 function buildGraph(snapshot: GraphSnapshot): {
   nodes: GraphNode[];
   links: GraphLink[];
@@ -119,6 +189,11 @@ function buildGraph(snapshot: GraphSnapshot): {
 } {
   const topicIds = new Set(snapshot.nodes.map((node) => node.id));
   const topicDisplayNumberById = getTopicDisplayNumberById(snapshot.nodes);
+  const maintenanceStateByMemoryId = getMaintenanceStateByMemoryId(snapshot);
+  const maintenanceStateByTopicId = getMaintenanceStateByTopicId(
+    snapshot,
+    maintenanceStateByMemoryId,
+  );
   const topicByMemoryId = new Map<string, string>();
   const nodes: GraphNode[] = [
     ...snapshot.nodes.map((topic) => ({
@@ -127,6 +202,7 @@ function buildGraph(snapshot: GraphSnapshot): {
       radius: TOPIC_RADIUS,
       topic,
       displayNumber: topicDisplayNumberById.get(topic.id) ?? 0,
+      state: maintenanceStateByTopicId.get(topic.id) ?? EMPTY_NODE_STATE,
     })),
     ...snapshot.memories.map((memory) => {
       const memoryId = `memory:${memory.id}`;
@@ -137,6 +213,7 @@ function buildGraph(snapshot: GraphSnapshot): {
         kind: "memory" as const,
         radius: MEMORY_RADIUS,
         memory,
+        state: maintenanceStateByMemoryId.get(memory.id) ?? EMPTY_NODE_STATE,
       };
     }),
   ];
@@ -160,8 +237,80 @@ function buildGraph(snapshot: GraphSnapshot): {
       type: "memory",
       weight: 1,
     }));
+  const memoryRelationshipLinks: GraphLink[] = (snapshot.memoryEdges ?? [])
+    .filter((edge) => edge.edgeType === "conflicts" || edge.edgeType === "updates")
+    .map((edge) => ({
+      id: `memory-relation:${edge.id}:${edge.edgeType}`,
+      source: `memory:${edge.sourceId}`,
+      target: `memory:${edge.targetId}`,
+      type: edge.edgeType === "conflicts" ? "memory-conflict" : "memory-update",
+      weight: edge.weight,
+    }));
 
-  return { nodes, links: [...topicLinks, ...memoryLinks], topicByMemoryId };
+  return {
+    nodes,
+    links: [...topicLinks, ...memoryLinks, ...memoryRelationshipLinks],
+    topicByMemoryId,
+  };
+}
+
+function getMaintenanceStateByMemoryId(
+  snapshot: GraphSnapshot,
+): Map<string, NodeMaintenanceState> {
+  const stateByMemoryId = new Map<string, NodeMaintenanceState>();
+  const conflictIds = new Set<string>();
+  const versionIds = new Set<string>();
+
+  for (const edge of snapshot.memoryEdges ?? []) {
+    if (edge.edgeType === "conflicts") {
+      conflictIds.add(edge.sourceId);
+      conflictIds.add(edge.targetId);
+    }
+
+    if (edge.edgeType === "updates") {
+      versionIds.add(edge.sourceId);
+      versionIds.add(edge.targetId);
+    }
+  }
+
+  for (const memory of snapshot.memories) {
+    stateByMemoryId.set(memory.id, {
+      decayed: memory.decayed,
+      conflict: Boolean(memory.hasConflict) || conflictIds.has(memory.id),
+      versioned: Boolean(memory.supersededBy) || versionIds.has(memory.id),
+    });
+  }
+
+  return stateByMemoryId;
+}
+
+function getMaintenanceStateByTopicId(
+  snapshot: GraphSnapshot,
+  stateByMemoryId: Map<string, NodeMaintenanceState>,
+): Map<string, NodeMaintenanceState> {
+  const stateByTopicId = new Map<string, NodeMaintenanceState>();
+
+  for (const memory of snapshot.memories) {
+    const memoryState = stateByMemoryId.get(memory.id) ?? EMPTY_NODE_STATE;
+    const current = stateByTopicId.get(memory.topicNodeId) ?? EMPTY_NODE_STATE;
+    stateByTopicId.set(memory.topicNodeId, {
+      decayed: current.decayed || memoryState.decayed,
+      conflict: current.conflict || memoryState.conflict,
+      versioned: current.versioned || memoryState.versioned,
+    });
+  }
+
+  return stateByTopicId;
+}
+
+function getStateMeta(state: NodeMaintenanceState): string | undefined {
+  const labels = [
+    state.decayed ? "decayed" : null,
+    state.conflict ? "conflict" : null,
+    state.versioned ? "versioned" : null,
+  ].filter(Boolean);
+
+  return labels.length > 0 ? `Detected: ${labels.join(", ")}` : undefined;
 }
 
 export function getTopicDisplayNumberById(
@@ -282,6 +431,9 @@ export function GraphPanel({
   selectedTopicId,
   graftLabel,
   grafting,
+  maintenanceLabel,
+  maintenanceRunning,
+  onRunMaintenance,
   onSelectTopic,
   onGraftSelected,
 }: GraphPanelProps) {
@@ -416,9 +568,45 @@ export function GraphPanel({
       .join("path")
       .attr("fill", "none")
       .attr("stroke", getLinkColor)
-      .attr("stroke-width", (link) => (link.type === "memory" ? 1.4 : 2.1))
-      .attr("stroke-opacity", (link) => (link.type === "memory" ? 0.42 : 0.9))
-      .attr("stroke-dasharray", getLinkDash);
+      .attr("stroke-width", (link) =>
+        link.type === "memory" ? 1.4 : link.type.startsWith("memory-") ? 2 : 2.1,
+      )
+      .attr("stroke-opacity", (link) =>
+        link.type === "memory" ? 0.42 : link.type.startsWith("memory-") ? 0.86 : 0.9,
+      )
+      .attr("stroke-dasharray", getLinkDash)
+      .on("mouseenter", (event, link) => {
+        const linkTooltip = getLinkTooltip(link);
+        if (!linkTooltip) {
+          return;
+        }
+
+        clearTooltipCloseTimer();
+        const rect = container.getBoundingClientRect();
+        setTooltip({
+          ...linkTooltip,
+          x: event.clientX - rect.left + 12,
+          y: event.clientY - rect.top + 12,
+        });
+      })
+      .on("mousemove", (event, link) => {
+        const linkTooltip = getLinkTooltip(link);
+        if (!linkTooltip) {
+          return;
+        }
+
+        const rect = container.getBoundingClientRect();
+        setTooltip((current) =>
+          current
+            ? {
+                ...current,
+                x: event.clientX - rect.left + 12,
+                y: event.clientY - rect.top + 12,
+              }
+            : null,
+        );
+      })
+      .on("mouseleave", scheduleTooltipClose);
 
     const nodeGroups = nodeLayer
       .selectAll<SVGGElement, GraphNode>("g")
@@ -445,6 +633,7 @@ export function GraphPanel({
             title: node.topic.label,
             body: node.topic.summary || "No summary yet.",
             kind: "topic",
+            meta: getStateMeta(node.state),
           });
         } else {
           const config = MEMORY_TYPE_CONFIG[node.memory.memoryType];
@@ -454,7 +643,9 @@ export function GraphPanel({
             title: config.label,
             body: `${node.memory.subject}: ${node.memory.value}`,
             kind: "memory",
-            meta: `Confidence ${Math.round(node.memory.confidence * 100)}%`,
+            meta:
+              getStateMeta(node.state) ??
+              `Confidence ${Math.round(node.memory.confidence * 100)}%`,
           });
         }
       })
@@ -495,13 +686,44 @@ export function GraphPanel({
       .attr("fill", (node) =>
         isTopicNode(node)
           ? `${getTopicColor(node.displayNumber)}33`
-          : getMemoryColor(node.memory),
+          : getMemoryColor(node.memory, node.state),
       )
       .attr("stroke", (node) =>
-        isTopicNode(node) ? getTopicColor(node.displayNumber) : "#e6edf3",
+        node.state.versioned
+            ? "#d29922"
+            : isTopicNode(node)
+              ? getTopicColor(node.displayNumber)
+              : "#e6edf3",
       )
-      .attr("stroke-opacity", (node) => (isTopicNode(node) ? 0.95 : 0.78))
-      .attr("stroke-width", (node) => (isTopicNode(node) ? 2.1 : 1.2));
+      .attr("stroke-opacity", (node) =>
+        node.state.decayed ? 0.48 : isTopicNode(node) ? 0.95 : 0.78,
+      )
+      .attr("stroke-width", (node) =>
+        node.state.versioned
+          ? isTopicNode(node)
+            ? 3
+            : 2
+          : isTopicNode(node)
+            ? 2.1
+            : 1.2,
+      )
+      .attr("stroke-dasharray", (node) => (node.state.decayed ? "4,3" : null))
+      .attr("opacity", (node) => (node.state.decayed ? 0.58 : 1));
+
+    nodeGroups
+      .filter((node) => node.state.conflict)
+      .append("circle")
+      .attr("r", (node) => node.radius + (isTopicNode(node) ? 8 : 5))
+      .attr("fill", "none")
+      .attr("stroke", MEMORY_CONFLICT_EDGE_COLOR)
+      .attr("stroke-width", 2.4)
+      .attr("stroke-opacity", 0.35)
+      .attr("pointer-events", "none")
+      .append("animate")
+      .attr("attributeName", "stroke-opacity")
+      .attr("values", "0.18;1;0.18")
+      .attr("dur", "1.35s")
+      .attr("repeatCount", "indefinite");
 
     nodeGroups
       .filter(isTopicNode)
@@ -510,7 +732,11 @@ export function GraphPanel({
         isTopicNode(node) && node.topic.id === selectedTopicId ? 4 : 2.1,
       )
       .attr("stroke-dasharray", (node) =>
-        isTopicNode(node) && node.topic.id === selectedTopicId ? "5,3" : null,
+        isTopicNode(node) && node.topic.id === selectedTopicId
+          ? "5,3"
+          : node.state.decayed
+            ? "4,3"
+            : null,
       );
 
     const labels = labelLayer
@@ -536,8 +762,20 @@ export function GraphPanel({
         d3
           .forceLink<GraphNode, GraphLink>(links)
           .id((node) => node.id)
-          .distance((link) => (link.type === "memory" ? 128 : 250))
-          .strength((link) => (link.type === "memory" ? 0.22 : 0.16)),
+          .distance((link) =>
+            link.type === "memory"
+              ? 128
+              : link.type.startsWith("memory-")
+                ? 96
+                : 250,
+          )
+          .strength((link) =>
+            link.type === "memory"
+              ? 0.22
+              : link.type.startsWith("memory-")
+                ? 0.08
+                : 0.16,
+          ),
       )
       .force(
         "charge",
@@ -683,6 +921,17 @@ export function GraphPanel({
         </button>
       ) : null}
 
+      {maintenanceLabel && onRunMaintenance ? (
+        <button
+          type="button"
+          disabled={maintenanceRunning}
+          onClick={onRunMaintenance}
+          className="absolute left-3 top-20 rounded-md border border-success/40 bg-success/10 px-3 py-2 text-xs font-semibold text-success transition hover:bg-success/20 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {maintenanceRunning ? "Running..." : maintenanceLabel}
+        </button>
+      ) : null}
+
       <div className="absolute bottom-3 right-3 rounded-md border border-border bg-surface/95 px-3 py-2">
         <div className="mb-2 text-[11px] font-semibold uppercase text-muted">
           Edges
@@ -716,6 +965,33 @@ export function GraphPanel({
               />
             </svg>
             <span>Memory</span>
+          </div>
+          <div className="flex items-center gap-2 text-[11px] text-muted">
+            <svg width="34" height="8" aria-hidden="true">
+              <line
+                x1="0"
+                y1="4"
+                x2="34"
+                y2="4"
+                stroke={MEMORY_CONFLICT_EDGE_COLOR}
+                strokeWidth="2"
+                strokeDasharray="5,4"
+              />
+            </svg>
+            <span>Conflict</span>
+          </div>
+          <div className="flex items-center gap-2 text-[11px] text-muted">
+            <svg width="34" height="8" aria-hidden="true">
+              <line
+                x1="0"
+                y1="4"
+                x2="34"
+                y2="4"
+                stroke={MEMORY_UPDATE_EDGE_COLOR}
+                strokeWidth="2"
+              />
+            </svg>
+            <span>Version update</span>
           </div>
         </div>
       </div>

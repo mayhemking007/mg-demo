@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { AxiosError } from "axios";
 import { ChatPanel } from "./components/ChatPanel";
+import { DetectedPanel } from "./components/DetectedPanel";
 import { GraphPanel, getTopicDisplayNumberById } from "./components/GraphPanel";
 import { StatusBar } from "./components/StatusBar";
 import {
@@ -8,10 +9,11 @@ import {
   fetchHistory,
   fetchSnapshot,
   graftTopics,
+  runMaintenance,
   sendMessage,
 } from "./lib/api";
 import { rotateSession, type SessionSlot } from "./lib/session";
-import type { GraphSnapshot, Message } from "./types";
+import type { DetectedSummary, GraphSnapshot, Message } from "./types";
 
 const DAILY_LIMIT = parseInt(import.meta.env.VITE_DAILY_LIMIT ?? "10", 10);
 const RATE_LIMIT_ENABLED = import.meta.env.VITE_RATE_LIMIT_ENABLED === "true";
@@ -30,6 +32,7 @@ interface RateLimitError {
 interface SessionState {
   messages: Message[];
   snapshot: GraphSnapshot | null;
+  detected: DetectedSummary | null;
   loading: boolean;
   selectedTopicId: string | null;
 }
@@ -46,6 +49,7 @@ function emptySession(): SessionState {
   return {
     messages: [],
     snapshot: null,
+    detected: null,
     loading: false,
     selectedTopicId: null,
   };
@@ -62,6 +66,9 @@ export default function App() {
   const [clearingSlot, setClearingSlot] = useState<SessionSlot | null>(null);
   const [autoGeneratingSlot, setAutoGeneratingSlot] =
     useState<SessionSlot | null>(null);
+  const [maintenanceSlot, setMaintenanceSlot] = useState<SessionSlot | null>(
+    null,
+  );
 
   useEffect(() => {
     (async () => {
@@ -81,6 +88,7 @@ export default function App() {
                 snapshotResult.status === "fulfilled"
                   ? snapshotResult.value
                   : { ...EMPTY_SNAPSHOT, capturedAt: new Date().toISOString() },
+              detected: null,
               loading: false,
               selectedTopicId: null,
             },
@@ -310,6 +318,34 @@ export default function App() {
     }
   }
 
+  async function handleMaintenance(slot: SessionSlot) {
+    if (maintenanceSlot || (sessions[slot].snapshot?.nodes.length ?? 0) < 3) {
+      return;
+    }
+
+    setMaintenanceSlot(slot);
+
+    try {
+      const result = await runMaintenance(slot);
+      updateSession(slot, (session) => ({
+        ...session,
+        snapshot: result.snapshot,
+        detected: result.detected,
+      }));
+    } catch {
+      updateSession(slot, (session) => ({
+        ...session,
+        detected: {
+          decayed: [],
+          conflicts: [],
+          versions: [],
+        },
+      }));
+    } finally {
+      setMaintenanceSlot(null);
+    }
+  }
+
   function renderLane(slot: SessionSlot, label: string, target: SessionSlot) {
     const session = sessions[slot];
     const targetLabel = target === "a" ? "Session A" : "Session B";
@@ -322,16 +358,19 @@ export default function App() {
     const selectedNodeLabel = selectedTopic
       ? `Node ${topicDisplayNumberById.get(selectedTopic.id) ?? 0}`
       : "Node";
+    const canRunMaintenance = (session.snapshot?.nodes.length ?? 0) >= 3;
 
     return (
       <section className="grid min-h-0 flex-1 grid-cols-1 border-b border-border last:border-b-0 lg:grid-cols-[minmax(0,1.55fr)_minmax(340px,0.95fr)]">
-        <div className="min-h-[22rem] border-b border-border lg:border-b-0 lg:border-r">
+        <div className="relative min-h-[22rem] border-b border-border lg:border-b-0 lg:border-r">
           <GraphPanel
             title={`${label} graph`}
             snapshot={session.snapshot}
             selectedTopicId={session.selectedTopicId}
             graftLabel={`Graft ${selectedNodeLabel} to ${targetLabel}`}
             grafting={grafting === slot}
+            maintenanceLabel={canRunMaintenance ? "Run Maintenance" : undefined}
+            maintenanceRunning={maintenanceSlot === slot}
             onSelectTopic={(topicId) =>
               updateSession(slot, (current) => ({
                 ...current,
@@ -339,6 +378,11 @@ export default function App() {
               }))
             }
             onGraftSelected={() => handleGraft(slot, target)}
+            onRunMaintenance={() => handleMaintenance(slot)}
+          />
+          <DetectedPanel
+            detected={session.detected}
+            topics={session.snapshot?.nodes ?? []}
           />
         </div>
         <div className="min-h-[22rem]">
