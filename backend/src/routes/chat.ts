@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { checkRateLimit } from "../rateLimiter.js";
-import { getOrCreateAgent, getPersistedSnapshot } from "../sessionStore.js";
+import { sendChatMessage } from "../memoGrafter/memoGrafterService.js";
 
 const router = Router();
 const DAILY_LIMIT = parseInt(process.env.DAILY_MESSAGE_LIMIT ?? "10", 10);
@@ -38,9 +38,7 @@ router.post("/", async (req, res) => {
   }
 
   try {
-    const agent = await getOrCreateAgent(sessionId);
-    const response = await agent.invoke(message);
-    const snapshot = await getPersistedSnapshot(sessionId);
+    const { response, snapshot } = await sendChatMessage(sessionId, message);
 
     res.json({
       response,

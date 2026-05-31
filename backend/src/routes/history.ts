@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { getSessionHistory } from "../sessionStore.js";
+import { getSessionHistory } from "../memoGrafter/memoGrafterService.js";
 
 const router = Router();
 

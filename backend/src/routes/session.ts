@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { clearPersistedSession } from "../sessionStore.js";
+import { clearSession } from "../memoGrafter/memoGrafterService.js";
 
 const router = Router();
 
@@ -12,7 +12,7 @@ router.delete("/", async (req, res) => {
   }
 
   try {
-    await clearPersistedSession(sessionId);
+    await clearSession(sessionId);
     res.json({ ok: true });
   } catch (err) {
     console.error("Clear session error:", err);

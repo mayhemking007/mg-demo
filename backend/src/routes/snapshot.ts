@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { getPersistedSnapshot } from "../sessionStore.js";
+import { getSessionSnapshot } from "../memoGrafter/memoGrafterService.js";
 
 const router = Router();
 
@@ -12,7 +12,7 @@ router.get("/", async (req, res) => {
   }
 
   try {
-    const snapshot = await getPersistedSnapshot(sessionId);
+    const snapshot = await getSessionSnapshot(sessionId);
     res.json(snapshot);
   } catch (err) {
     console.error("Snapshot error:", err);

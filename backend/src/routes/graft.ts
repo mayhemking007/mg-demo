@@ -1,8 +1,5 @@
 import { Router } from "express";
-import {
-  getPersistedSnapshot,
-  graftTopicsWithMemories,
-} from "../sessionStore.js";
+import { graftTopics } from "../memoGrafter/memoGrafterService.js";
 
 const router = Router();
 
@@ -31,12 +28,11 @@ router.post("/", async (req, res) => {
   }
 
   try {
-    const graftedNodes = await graftTopicsWithMemories(
+    const { graftedNodes, snapshot } = await graftTopics(
       sourceSessionId,
       targetSessionId,
       topicIds,
     );
-    const snapshot = await getPersistedSnapshot(targetSessionId);
 
     res.json({ graftedNodes, snapshot });
   } catch (err) {

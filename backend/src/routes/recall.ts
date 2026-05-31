@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { getOrCreateAgent } from "../sessionStore.js";
+import { recallMemories } from "../memoGrafter/memoGrafterService.js";
 
 const router = Router();
 
@@ -12,11 +12,7 @@ router.get("/", async (req, res) => {
   }
 
   try {
-    const agent = await getOrCreateAgent(sessionId);
-    const result = await agent.recall(q, {
-      limit: 8,
-      minSimilarity: 0.4,
-    });
+    const result = await recallMemories(sessionId, q);
 
     res.json(result);
   } catch (err) {
