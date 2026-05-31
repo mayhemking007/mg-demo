@@ -3,7 +3,8 @@
 MemoGrafter Playground is a full-stack demo for exploring conversational memory
 with [memo-grafter](https://www.npmjs.com/package/memo-grafter). It shows how
 chat messages become topic nodes, typed memory nodes, semantic edges, temporal
-edges, and grafted cross-session relationships.
+edges, memory conflict/version edges, decay state, and grafted cross-session
+relationships.
 
 The current demo uses light everyday prompts around music, food, and film so it
 is easy to generate a readable memory graph without typing a long technical
@@ -23,10 +24,15 @@ conversation.
   immediately.
 - Shows grafted, semantic, temporal, reentry, and memory edges in the graph
   legend.
+- Runs memo-grafter's maintenance crawler per session to detect memory decay,
+  conflicts, and version updates.
+- Shows detected maintenance results in a graph-side `Detected` panel.
+- Renders conflict edges and version update edges between memory nodes.
 - Includes an `Auto generate` button that sends three sample music/food/film
   messages through the normal chat API.
 - Includes per-session `Clear session` buttons so one side can be reset without
   affecting the other.
+- Includes a navbar help walkthrough for first-time users.
 - Keeps rate limiting available but disabled by default for easier demos.
 
 There is no login, signup, or authentication.
@@ -94,7 +100,8 @@ To re-enable the demo message limit later, set both rate-limit flags to `true`.
 memo-grafter handles the memory graph and database access. This app does not use
 Prisma or another ORM. The backend creates `MemoGrafterAgent` instances, invokes
 them for chat, reads persisted graph snapshots, and uses memo-grafter's grafting
-API to copy topics between sessions.
+API to copy topics between sessions. It also runs memo-grafter crawler passes for
+maintenance checks.
 
 The playground adds demo-specific behavior around memo-grafter:
 
@@ -103,8 +110,12 @@ The playground adds demo-specific behavior around memo-grafter:
 - Chat history is hydrated from the persisted message buffer.
 - Grafted topic memories are copied into the target session so the visual graph
   clearly shows what moved.
+- Maintenance uses memo-grafter's crawler passes to mark conflicts, superseded
+  memories, and decayed memories.
 - Display edges are adjusted so grafted nodes connect to the closest local topic
   instead of rendering an invisible external source node.
+- Conflict and version memory edges are rendered directly from memo-grafter's
+  `memoryEdges` snapshot data.
 
 ## Documentation
 
