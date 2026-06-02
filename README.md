@@ -1,65 +1,84 @@
 # MemoGrafter Playground
 
-MemoGrafter Playground is a full-stack demo for exploring conversational memory
-with [memo-grafter](https://www.npmjs.com/package/memo-grafter). It shows how
-chat messages become topic nodes, typed memory nodes, semantic edges, temporal
-edges, memory conflict/version edges, decay state, and grafted cross-session
-relationships.
+MemoGrafter Playground is a full-stack demo app for exploring conversational
+memory with [memo-grafter](https://www.npmjs.com/package/memo-grafter). It turns
+ordinary chat messages into persisted topic nodes, typed memory nodes, graph
+edges, maintenance signals, and cross-session grafts.
 
-The current demo uses light everyday prompts around music, food, and film so it
-is easy to generate a readable memory graph without typing a long technical
-conversation.
+> **Live demo:** Check out the Playground [here](https://mgplayground-green.vercel.app/).
 
-> **Live Demo:** Check out the Playground [here](https://mgplayground-green.vercel.app/).
+The demo intentionally uses everyday prompts around food, music, film, and
+travel so the memory graph is easy to understand without a long technical setup.
 
-## What The App Does
+## Highlights
 
-- Runs two independent memory sessions side by side.
-- Shows a graph panel and chat panel for each session.
-- Stores each session id in `localStorage`.
-- Persists chat history and graph data in Postgres/pgvector through
-  memo-grafter.
-- Lets you select a topic node in one graph and graft it into the other session.
-- Copies the grafted topic's memories with it so the target graph updates
-  immediately.
-- Shows grafted, semantic, temporal, reentry, and memory edges in the graph
-  legend.
-- Runs memo-grafter's maintenance crawler per session to detect memory decay,
-  conflicts, and version updates.
-- Shows detected maintenance results in a graph-side `Detected` panel.
-- Renders conflict edges and version update edges between memory nodes.
-- Includes an `Auto generate` button that sends five sample messages through
-  the normal chat API to exercise conflict and version edges.
-- Includes per-session `Clear session` buttons so one side can be reset without
-  affecting the other.
-- Includes a navbar help walkthrough for first-time users.
-- Keeps rate limiting available but disabled by default for easier demos.
+- Two independent chat sessions run side by side.
+- Each session has its own graph and chat panel.
+- Browser-owned session ids are stored in `localStorage`.
+- Chat history and graph data persist in Postgres/pgvector through memo-grafter.
+- Topic nodes can be grafted from one session into the other.
+- Grafted topics bring their memories with them, so the target session can use
+  them later.
+- D3 renders temporal, semantic, reentry, grafted, memory, conflict, and version
+  update edges.
+- Memo-grafter maintenance crawler runs per session to detect decay, conflicts,
+  and version updates.
+- The graph-side `Detected` panel summarizes maintenance results.
+- Each session can be cleared independently.
+- Auto-generate creates sample messages through the same chat API a user uses.
+- A navbar help walkthrough explains the playground flow.
+- No login, signup, or authentication.
 
-There is no login, signup, or authentication.
+## What To Try
+
+1. Click `Auto generate` in Session A or Session B.
+2. Wait for the graph to populate with topic and memory nodes.
+3. Click `Run Maintenance` when it starts pulsing.
+4. Hover graph nodes and maintenance edges to inspect what was detected.
+5. Select a topic node in one session and graft it into the other.
+6. Ask the target chat about the grafted information.
+7. Use `Clear session` to reset only one side.
+
+Conflict and version behavior comes from memo-grafter's maintenance passes. In
+general, a conflict means two memories disagree, while a version update means a
+newer memory replaced an older one.
 
 ## Project Structure
 
-This repository contains two independent projects:
+```txt
+dev-memory-assistant-project/
+  backend/    Node.js + TypeScript + Express + memo-grafter
+  frontend/   React + TypeScript + Vite + Tailwind CSS + D3
+```
 
-- `backend/` - Node.js, TypeScript, Express, memo-grafter, Postgres/pgvector
-- `frontend/` - React, TypeScript, Vite, Tailwind CSS, D3
+There is no monorepo tooling. The backend and frontend are independent projects
+with separate `package.json` files. The root `package.json` only provides helper
+scripts for building both sides together.
 
-There is no monorepo tooling. Each folder has its own `package.json`, scripts,
-dependencies, and deployment path. The frontend communicates with the backend
-over HTTP.
+## Quick Start
 
-## Local Development
-
-Start the database and backend:
+Start Postgres locally:
 
 ```bash
 cd backend
-npm install
 docker-compose up -d
+```
+
+Create backend env:
+
+```bash
+cd backend
+copy .env.example .env
+```
+
+Set `OPENAI_API_KEY` in `backend/.env`, then install and run:
+
+```bash
+npm install
 npm run dev
 ```
 
-Then start the frontend:
+Start the frontend:
 
 ```bash
 cd frontend
@@ -72,88 +91,116 @@ Defaults:
 - Backend: `http://localhost:3001`
 - Frontend: `http://localhost:5173`
 
+## Build
+
+Build both projects from the repository root:
+
+```bash
+npm run build
+```
+
+Or build each project separately:
+
+```bash
+npm --prefix backend run build
+npm --prefix frontend run build
+```
+
 ## Environment
 
-Backend variables are documented in `backend/.env.example`.
+Backend variables live in `backend/.env.example`:
 
-Important backend values:
+```env
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/dev_memory
+OPENAI_API_KEY=sk-...
+PORT=3001
+DAILY_MESSAGE_LIMIT=10
+RATE_LIMIT_ENABLED=false
+FRONTEND_URL=https://your-frontend-domain.com
+```
 
-- `DATABASE_URL`
-- `OPENAI_API_KEY`
-- `PORT`
-- `FRONTEND_URL`
-- `RATE_LIMIT_ENABLED=false`
-- `DAILY_MESSAGE_LIMIT=10`
+Frontend variables live in `frontend/.env.example`:
 
-Frontend variables are documented in `frontend/.env.example`.
+```env
+VITE_BACKEND_URL=http://localhost:3001
+VITE_DAILY_LIMIT=10
+VITE_RATE_LIMIT_ENABLED=false
+```
 
-Important frontend values:
+Rate limiting is disabled by default for demos. To enable it again, set both
+`RATE_LIMIT_ENABLED=true` and `VITE_RATE_LIMIT_ENABLED=true`.
 
-- `VITE_BACKEND_URL=http://localhost:3001`
-- `VITE_RATE_LIMIT_ENABLED=false`
-- `VITE_DAILY_LIMIT=10`
+## How Memo-Grafter Is Used
 
-To re-enable the demo message limit later, set both rate-limit flags to `true`.
+memo-grafter owns the core memory behavior:
 
-## Memo-Grafter
+- `MemoGrafterAgent.invoke()` handles conversational memory-aware chat.
+- memo-grafter persists messages, topic nodes, memory nodes, and graph edges.
+- `getGraphSnapshot()` returns the graph data rendered by the frontend.
+- `absorbFromAgent()` powers cross-session grafting.
+- `MemoGrafterCrawler` runs conflict detection, versioning, and decay scoring.
 
-memo-grafter handles the memory graph and database access. This app does not use
-Prisma or another ORM. The backend creates `MemoGrafterAgent` instances, invokes
-them for chat, reads persisted graph snapshots, and uses memo-grafter's grafting
-API to copy topics between sessions. It also runs memo-grafter crawler passes for
-maintenance checks.
+The playground adds demo-specific glue around that core:
 
-The playground adds demo-specific behavior around memo-grafter:
+- It maps browser `localStorage` ids to memo-grafter sessions.
+- It hydrates chat history from memo-grafter's persisted message buffer.
+- It presents two sessions in one UI so grafting is visible.
+- It copies grafted topic memories into the target view for a clearer demo.
+- It adapts display edges so grafted nodes connect to the closest local topic.
+- It filters stale display state so old maintenance metadata does not create
+  misleading graph highlights.
 
-- Browser session ids are forced into memo-grafter sessions so refreshes reload
-  the same graph.
-- Chat history is hydrated from the persisted message buffer.
-- Grafted topic memories are copied into the target session so the visual graph
-  clearly shows what moved.
-- Maintenance uses memo-grafter's crawler passes to mark conflicts, superseded
-  memories, and decayed memories.
-- Display edges are adjusted so grafted nodes connect to the closest local topic
-  instead of rendering an invisible external source node.
-- Conflict and version memory edges are rendered directly from memo-grafter's
-  `memoryEdges` snapshot data.
-- The backend uses memo-grafter `0.2.5`; stale conflict edges are filtered from
-  display summaries so older maintenance results do not keep highlighting
-  inactive or superseded memories.
+The backend does not use Prisma or another ORM. memo-grafter handles database
+access.
+
+## Deployment
+
+Recommended free demo setup:
+
+- Frontend: Vercel
+- Backend: Render
+- Database: Neon Postgres with pgvector support
+
+Backend deployment:
+
+- Root directory: `backend`
+- Build command: `npm install && npm run build`
+- Start command: `npm start`
+- Required env: `DATABASE_URL`, `OPENAI_API_KEY`, `FRONTEND_URL`
+
+Frontend deployment:
+
+- Root directory: `frontend`
+- Framework preset: Vite
+- Build command: `npm run build`
+- Output directory: `dist`
+- Required env: `VITE_BACKEND_URL`
+
+Production pairing:
+
+- Backend `FRONTEND_URL` must exactly match the frontend origin for CORS.
+- Frontend `VITE_BACKEND_URL` must point to the deployed backend origin.
+
+## Persistence Notes
+
+The important data persists in Postgres:
+
+- chat messages
+- topic nodes
+- memory nodes
+- topic edges
+- memory edges
+- graft registry entries
+
+Express agent instances and rate-limit buckets are in memory and reset when the
+backend restarts. When the browser sends the same session id again, the backend
+recreates the agent and memo-grafter reloads persisted session data from the
+database.
+
+Per-session `Clear session` deletes that session's persisted chat and graph data
+and rotates only that browser session id. The other session is left unchanged.
 
 ## Documentation
 
 - Backend setup and deployment: `backend/README.md`
 - Frontend setup and deployment: `frontend/README.md`
-- Implementation reference: `PLAN.md`
-
-## Deployment Readiness
-
-Backend:
-
-- Build with `npm run build` inside `backend/`.
-- Deploy as a Node service with `npm start`, or build the included Docker image.
-- Provide `DATABASE_URL`, `OPENAI_API_KEY`, and `FRONTEND_URL`.
-- Use a Postgres provider that supports pgvector.
-- Keep `RATE_LIMIT_ENABLED=false` for open demos, or set it to `true` with
-  `DAILY_MESSAGE_LIMIT` when you want the browser limit back.
-
-Frontend:
-
-- Build with `npm run build` inside `frontend/`.
-- Deploy `frontend/dist/` to any static host, or build the included nginx Docker
-  image.
-- Set `VITE_BACKEND_URL` to the deployed backend origin before building.
-- Match `VITE_RATE_LIMIT_ENABLED` and `VITE_DAILY_LIMIT` to the backend values
-  when rate limiting is enabled.
-
-Production pairing:
-
-- Backend `FRONTEND_URL` must match the frontend origin for CORS.
-- Frontend `VITE_BACKEND_URL` must match the backend origin for API calls.
-
-## Notes
-
-Active agent instances are in memory and reset on server restart. The important
-demo data - messages, topic nodes, memory nodes, and graph edges - persists in
-Postgres. Per-session clear deletes that session's persisted chat and graph data
-and rotates only that browser session id.
