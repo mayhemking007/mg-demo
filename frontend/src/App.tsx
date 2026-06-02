@@ -17,11 +17,22 @@ import type { DetectedSummary, GraphSnapshot, Message } from "./types";
 
 const DAILY_LIMIT = parseInt(import.meta.env.VITE_DAILY_LIMIT ?? "10", 10);
 const RATE_LIMIT_ENABLED = import.meta.env.VITE_RATE_LIMIT_ENABLED === "true";
-const DEMO_PROMPTS = [
-  "I keep replaying Kind of Blue while cooking dinner, especially on rainy evenings.",
-  "We loved the handmade mushroom ravioli at the little Italian place near the cinema.",
-  "The film we want to revisit is In the Mood for Love because the music and colors stayed with us.",
-];
+const DEMO_PROMPTS_BY_SLOT: Record<SessionSlot, string[]> = {
+  a: [
+    "Plan a Goa trip focused on beaches, relaxed seafood dinners, and slow mornings.",
+    "Plan a Vietnam trip focused on cafes, museums, street food, and city walks.",
+    "My favorite dessert is tiramisu after dinner.",
+    "Actually, update my favorite dessert to black sesame ice cream after dinner.",
+    "I want to rewatch In the Mood for Love while playing soft jazz before cooking.",
+  ],
+  b: [
+    "Remember this exact memory: subject is Friday dinner plan, predicate is selected option, value is sushi with miso soup.",
+    "Remember this exact memory too: subject is Friday dinner plan, predicate is selected option, value is Korean BBQ with kimchi.",
+    "Breakfast preference: remember that my ideal weekend breakfast is masala dosa with filter coffee.",
+    "Breakfast preference update: masala dosa is outdated; my ideal weekend breakfast is now poha with ginger chai.",
+    "I want a movie night with The Lunchbox and a mellow acoustic playlist.",
+  ],
+};
 
 interface RateLimitError {
   error: string;
@@ -69,6 +80,12 @@ export default function App() {
   const [maintenanceSlot, setMaintenanceSlot] = useState<SessionSlot | null>(
     null,
   );
+  const [maintenanceAcknowledged, setMaintenanceAcknowledged] = useState<
+    Record<SessionSlot, boolean>
+  >({
+    a: false,
+    b: false,
+  });
 
   useEffect(() => {
     (async () => {
@@ -180,8 +197,9 @@ export default function App() {
       return;
     }
 
+    const prompts = DEMO_PROMPTS_BY_SLOT[slot];
     const confirmed = window.confirm(
-      "Auto-generate 3 demo messages for this session?",
+      `Auto-generate ${prompts.length} demo messages for this session?`,
     );
 
     if (!confirmed) {
@@ -191,7 +209,7 @@ export default function App() {
     setAutoGeneratingSlot(slot);
     let nextRemaining = remaining;
 
-    for (const prompt of DEMO_PROMPTS) {
+    for (const prompt of prompts) {
       if (RATE_LIMIT_ENABLED && nextRemaining <= 0) {
         break;
       }
@@ -301,6 +319,10 @@ export default function App() {
     try {
       await clearSession(slot);
       const nextSessionId = rotateSession(slot);
+      setMaintenanceAcknowledged((current) => ({
+        ...current,
+        [slot]: false,
+      }));
       updateSession(slot, () => ({
         ...emptySession(),
         snapshot: {
@@ -323,6 +345,10 @@ export default function App() {
       return;
     }
 
+    setMaintenanceAcknowledged((current) => ({
+      ...current,
+      [slot]: true,
+    }));
     setMaintenanceSlot(slot);
 
     try {
@@ -370,6 +396,9 @@ export default function App() {
             graftLabel={`Graft ${selectedNodeLabel} to ${targetLabel}`}
             grafting={grafting === slot}
             maintenanceLabel={canRunMaintenance ? "Run Maintenance" : undefined}
+            maintenancePulse={
+              canRunMaintenance && !maintenanceAcknowledged[slot]
+            }
             maintenanceRunning={maintenanceSlot === slot}
             onSelectTopic={(topicId) =>
               updateSession(slot, (current) => ({

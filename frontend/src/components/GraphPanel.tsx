@@ -1,7 +1,13 @@
 import * as d3 from "d3";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { EDGE_TYPE_CONFIG, MEMORY_TYPE_CONFIG } from "../lib/memoryConfig";
-import type { GraphSnapshot, MemoryNode, TopicEdge, TopicNode } from "../types";
+import type {
+  GraphSnapshot,
+  MemoryEdge,
+  MemoryNode,
+  TopicEdge,
+  TopicNode,
+} from "../types";
 
 interface GraphPanelProps {
   snapshot: GraphSnapshot | null;
@@ -10,6 +16,7 @@ interface GraphPanelProps {
   graftLabel?: string;
   grafting?: boolean;
   maintenanceLabel?: string;
+  maintenancePulse?: boolean;
   maintenanceRunning?: boolean;
   onRunMaintenance?: () => void;
   onSelectTopic?: (topicId: string | null) => void;
@@ -100,6 +107,32 @@ function getMemoryColor(memory: MemoryNode, state: NodeMaintenanceState): string
   return MEMORY_TYPE_CONFIG[memory.memoryType]?.graphColor ?? "#8b949e";
 }
 
+function isActiveMemory(memory: MemoryNode | undefined): memory is MemoryNode {
+  return Boolean(memory && !memory.decayed && !memory.supersededBy);
+}
+
+function shouldDisplayMemoryRelationshipEdge(
+  edge: MemoryEdge,
+  memoryById: Map<string, MemoryNode>,
+): boolean {
+  const source = memoryById.get(edge.sourceId);
+  const target = memoryById.get(edge.targetId);
+
+  if (!source || !target) {
+    return false;
+  }
+
+  if (edge.edgeType === "conflicts") {
+    return !source.decayed && !target.decayed;
+  }
+
+  if (edge.edgeType === "updates") {
+    return isActiveMemory(source);
+  }
+
+  return false;
+}
+
 function getLinkColor(link: GraphLink): string {
   if (link.type === "memory") {
     return MEMORY_EDGE_COLOR;
@@ -188,8 +221,15 @@ function buildGraph(snapshot: GraphSnapshot): {
   topicByMemoryId: Map<string, string>;
 } {
   const topicIds = new Set(snapshot.nodes.map((node) => node.id));
+  const memoryById = new Map(snapshot.memories.map((memory) => [memory.id, memory]));
   const topicDisplayNumberById = getTopicDisplayNumberById(snapshot.nodes);
-  const maintenanceStateByMemoryId = getMaintenanceStateByMemoryId(snapshot);
+  const visibleMemoryRelationshipEdges = (snapshot.memoryEdges ?? []).filter((edge) =>
+    shouldDisplayMemoryRelationshipEdge(edge, memoryById),
+  );
+  const maintenanceStateByMemoryId = getMaintenanceStateByMemoryId(
+    snapshot,
+    visibleMemoryRelationshipEdges,
+  );
   const maintenanceStateByTopicId = getMaintenanceStateByTopicId(
     snapshot,
     maintenanceStateByMemoryId,
@@ -237,8 +277,7 @@ function buildGraph(snapshot: GraphSnapshot): {
       type: "memory",
       weight: 1,
     }));
-  const memoryRelationshipLinks: GraphLink[] = (snapshot.memoryEdges ?? [])
-    .filter((edge) => edge.edgeType === "conflicts" || edge.edgeType === "updates")
+  const memoryRelationshipLinks: GraphLink[] = visibleMemoryRelationshipEdges
     .map((edge) => ({
       id: `memory-relation:${edge.id}:${edge.edgeType}`,
       source: `memory:${edge.sourceId}`,
@@ -256,12 +295,13 @@ function buildGraph(snapshot: GraphSnapshot): {
 
 function getMaintenanceStateByMemoryId(
   snapshot: GraphSnapshot,
+  visibleMemoryRelationshipEdges: MemoryEdge[],
 ): Map<string, NodeMaintenanceState> {
   const stateByMemoryId = new Map<string, NodeMaintenanceState>();
   const conflictIds = new Set<string>();
   const versionIds = new Set<string>();
 
-  for (const edge of snapshot.memoryEdges ?? []) {
+  for (const edge of visibleMemoryRelationshipEdges) {
     if (edge.edgeType === "conflicts") {
       conflictIds.add(edge.sourceId);
       conflictIds.add(edge.targetId);
@@ -274,9 +314,10 @@ function getMaintenanceStateByMemoryId(
   }
 
   for (const memory of snapshot.memories) {
+    const active = isActiveMemory(memory);
     stateByMemoryId.set(memory.id, {
       decayed: memory.decayed,
-      conflict: Boolean(memory.hasConflict) || conflictIds.has(memory.id),
+      conflict: active && conflictIds.has(memory.id),
       versioned: Boolean(memory.supersededBy) || versionIds.has(memory.id),
     });
   }
@@ -432,6 +473,7 @@ export function GraphPanel({
   graftLabel,
   grafting,
   maintenanceLabel,
+  maintenancePulse,
   maintenanceRunning,
   onRunMaintenance,
   onSelectTopic,
@@ -926,7 +968,11 @@ export function GraphPanel({
           type="button"
           disabled={maintenanceRunning}
           onClick={onRunMaintenance}
-          className="absolute left-3 top-20 rounded-md border border-success/40 bg-success/10 px-3 py-2 text-xs font-semibold text-success transition hover:bg-success/20 disabled:cursor-not-allowed disabled:opacity-50"
+          className={`absolute left-3 top-20 rounded-md border border-success/40 bg-success/10 px-3 py-2 text-xs font-semibold text-success transition hover:bg-success/20 disabled:cursor-not-allowed disabled:opacity-50 ${
+            maintenancePulse && !maintenanceRunning
+              ? "animate-pulse shadow-[0_0_18px_rgba(63,185,80,0.35)]"
+              : ""
+          }`}
         >
           {maintenanceRunning ? "Running..." : maintenanceLabel}
         </button>

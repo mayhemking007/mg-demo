@@ -1,4 +1,9 @@
-import type { GraftRegistryEntry, GraphSnapshot } from "memo-grafter";
+import type {
+  GraftRegistryEntry,
+  GraphSnapshot,
+  MemoryEdge,
+  MemoryNode,
+} from "memo-grafter";
 import { cosineSimilarity } from "./similarity.js";
 
 const EDGE_DISPLAY_PRIORITY: Record<string, number> = {
@@ -17,8 +22,49 @@ export function createSessionLocalDisplaySnapshot(
   return {
     ...snapshot,
     edges: createDisplayEdges(snapshot.nodes, snapshot.edges, graftedSources),
+    memoryEdges: createDisplayMemoryEdges(
+      snapshot.memories,
+      snapshot.memoryEdges ?? [],
+    ),
     capturedAt: new Date().toISOString(),
   };
+}
+
+function createDisplayMemoryEdges(
+  memories: MemoryNode[],
+  memoryEdges: MemoryEdge[],
+): MemoryEdge[] {
+  const memoryById = new Map(memories.map((memory) => [memory.id, memory]));
+
+  return memoryEdges.filter((edge) =>
+    shouldDisplayMemoryEdge(edge, memoryById),
+  );
+}
+
+function shouldDisplayMemoryEdge(
+  edge: MemoryEdge,
+  memoryById: Map<string, MemoryNode>,
+): boolean {
+  const source = memoryById.get(edge.sourceId);
+  const target = memoryById.get(edge.targetId);
+
+  if (!source || !target) {
+    return false;
+  }
+
+  if (edge.edgeType === "conflicts") {
+    return !source.decayed && !target.decayed;
+  }
+
+  if (edge.edgeType === "updates") {
+    return isActiveMemory(source);
+  }
+
+  return true;
+}
+
+function isActiveMemory(memory: MemoryNode): boolean {
+  return !memory.decayed && !memory.supersededBy;
 }
 
 function createGraftedSourceMap(

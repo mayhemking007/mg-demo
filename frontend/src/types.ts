@@ -21,6 +21,7 @@ export interface MemoryNode {
   value: string;
   confidence: number;
   topicNodeId: string;
+  tags?: string[];
   decayed: boolean;
   supersededBy: string | null;
   hasConflict?: boolean;
@@ -30,6 +31,7 @@ export interface TopicNode {
   id: string;
   label: string;
   summary: string;
+  tags?: string[];
   topicOrder: number;
   driftScore: number;
 }

@@ -28,8 +28,8 @@ conversation.
   conflicts, and version updates.
 - Shows detected maintenance results in a graph-side `Detected` panel.
 - Renders conflict edges and version update edges between memory nodes.
-- Includes an `Auto generate` button that sends three sample music/food/film
-  messages through the normal chat API.
+- Includes an `Auto generate` button that sends five sample messages through
+  the normal chat API to exercise conflict and version edges.
 - Includes per-session `Clear session` buttons so one side can be reset without
   affecting the other.
 - Includes a navbar help walkthrough for first-time users.
@@ -116,6 +116,9 @@ The playground adds demo-specific behavior around memo-grafter:
   instead of rendering an invisible external source node.
 - Conflict and version memory edges are rendered directly from memo-grafter's
   `memoryEdges` snapshot data.
+- The backend uses memo-grafter `0.2.5`; stale conflict edges are filtered from
+  display summaries so older maintenance results do not keep highlighting
+  inactive or superseded memories.
 
 ## Documentation
 

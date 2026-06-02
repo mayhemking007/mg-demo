@@ -23,6 +23,10 @@ const HELP_CARDS = [
     body: "After enough topics exist, run maintenance to detect conflicts, decay, and version updates in the graph.",
   },
   {
+    title: "Conflicts And Versions",
+    body: "A conflict edge means two active memories disagree and need clarification. A version edge means a newer memory has replaced an older one.",
+  },
+  {
     title: "What To Try",
     body: "Use Auto generate to create sample memories, or type changing preferences to see updates and conflicts appear.",
   },
@@ -91,13 +95,25 @@ export function HelpModal({ open, onClose }: HelpModalProps) {
           >
             Skip
           </button>
-          <button
-            type="button"
-            onClick={() => (isLast ? onClose() : setIndex((value) => value + 1))}
-            className="rounded-md border border-accent/50 bg-accent/10 px-4 py-2 text-xs font-semibold text-accent transition hover:bg-accent/20"
-          >
-            {isLast ? "Done" : "Next"}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={index === 0}
+              onClick={() => setIndex((value) => Math.max(0, value - 1))}
+              className="rounded-md border border-border px-3 py-2 text-xs font-semibold text-muted transition hover:border-accent/50 hover:text-accent disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-border disabled:hover:text-muted"
+            >
+              Prev
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                isLast ? onClose() : setIndex((value) => value + 1)
+              }
+              className="rounded-md border border-accent/50 bg-accent/10 px-4 py-2 text-xs font-semibold text-accent transition hover:bg-accent/20"
+            >
+              {isLast ? "Done" : "Next"}
+            </button>
+          </div>
         </div>
       </section>
     </div>

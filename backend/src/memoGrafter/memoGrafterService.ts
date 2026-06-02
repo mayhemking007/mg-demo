@@ -158,19 +158,53 @@ function createDetectedSummary(input: {
     .filter((memory) => memory.decayed)
     .map(toDetectedMemoryNode);
   const conflicts = input.memoryEdges
-    .filter((edge) => edge.edgeType === "conflicts")
+    .filter(
+      (edge) =>
+        edge.edgeType === "conflicts" &&
+        shouldIncludeDetectedRelation(edge, memoryById),
+    )
     .map((edge) => toDetectedRelation(edge, memoryById))
     .filter((relation): relation is DetectedMemoryRelation =>
       Boolean(relation),
     );
   const versions = input.memoryEdges
-    .filter((edge) => edge.edgeType === "updates")
+    .filter(
+      (edge) =>
+        edge.edgeType === "updates" &&
+        shouldIncludeDetectedRelation(edge, memoryById),
+    )
     .map((edge) => toDetectedRelation(edge, memoryById))
     .filter((relation): relation is DetectedMemoryRelation =>
       Boolean(relation),
     );
 
   return { decayed, conflicts, versions };
+}
+
+function shouldIncludeDetectedRelation(
+  edge: MemoryEdge,
+  memoryById: Map<string, MemoryNode>,
+): boolean {
+  const source = memoryById.get(edge.sourceId);
+  const target = memoryById.get(edge.targetId);
+
+  if (!source || !target) {
+    return false;
+  }
+
+  if (edge.edgeType === "conflicts") {
+    return !source.decayed && !target.decayed;
+  }
+
+  if (edge.edgeType === "updates") {
+    return isActiveMemory(source);
+  }
+
+  return false;
+}
+
+function isActiveMemory(memory: MemoryNode): boolean {
+  return !memory.decayed && !memory.supersededBy;
 }
 
 function toDetectedRelation(
