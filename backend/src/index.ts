@@ -4,6 +4,7 @@ import express from "express";
 import chatRouter from "./routes/chat.js";
 import graftRouter from "./routes/graft.js";
 import historyRouter from "./routes/history.js";
+import ingestTextRouter from "./routes/ingestText.js";
 import maintenanceRouter from "./routes/maintenance.js";
 import recallRouter from "./routes/recall.js";
 import sessionRouter from "./routes/session.js";
@@ -28,6 +29,7 @@ app.get("/health", (_req, res) => {
 app.use("/chat", chatRouter);
 app.use("/graft", graftRouter);
 app.use("/history", historyRouter);
+app.use("/ingest-text", ingestTextRouter);
 app.use("/maintenance", maintenanceRouter);
 app.use("/recall", recallRouter);
 app.use("/session", sessionRouter);

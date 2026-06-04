@@ -5,6 +5,7 @@ import {
   VersioningPass,
   type CrawlerReport,
   type GraphSnapshot,
+  type IngestTextOptions,
   type MemoryEdge,
   type MemoryNode,
   type Message,
@@ -71,6 +72,17 @@ export async function recallMemories(
     limit: 8,
     minSimilarity: 0.4,
   });
+}
+
+export async function ingestPlainText(
+  sessionId: string,
+  text: string,
+  options?: IngestTextOptions,
+): Promise<GraphSnapshot> {
+  const agent = await getOrCreateAgent(sessionId);
+
+  await agent.ingestText(text, options);
+  return getSessionSnapshot(sessionId);
 }
 
 export async function graftTopics(
@@ -193,7 +205,7 @@ function shouldIncludeDetectedRelation(
   }
 
   if (edge.edgeType === "conflicts") {
-    return !source.decayed && !target.decayed;
+    return isActiveMemory(source) && isActiveMemory(target);
   }
 
   if (edge.edgeType === "updates") {

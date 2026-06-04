@@ -2,6 +2,8 @@ import axios from "axios";
 import type {
   ChatResponse,
   GraphSnapshot,
+  IngestTextOptions,
+  IngestTextResponse,
   MaintenanceResponse,
   Message,
 } from "../types";
@@ -75,6 +77,20 @@ export async function runMaintenance(
 ): Promise<MaintenanceResponse> {
   const { data } = await client.post<MaintenanceResponse>("/maintenance", {
     sessionId: getSessionId(slot),
+  });
+
+  return data;
+}
+
+export async function ingestText(
+  text: string,
+  slot: SessionSlot,
+  options?: IngestTextOptions,
+): Promise<IngestTextResponse> {
+  const { data } = await client.post<IngestTextResponse>("/ingest-text", {
+    sessionId: getSessionId(slot),
+    text,
+    options,
   });
 
   return data;

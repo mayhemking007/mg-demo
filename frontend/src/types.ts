@@ -105,3 +105,13 @@ export interface MaintenanceResponse {
   snapshot: GraphSnapshot;
   detected: DetectedSummary;
 }
+
+export interface IngestTextOptions {
+  replace?: boolean;
+  label?: string;
+  source?: string;
+}
+
+export interface IngestTextResponse {
+  snapshot: GraphSnapshot;
+}

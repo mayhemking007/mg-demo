@@ -26,6 +26,7 @@ travel so the memory graph is easy to understand without a long technical setup.
 - The graph-side `Detected` panel summarizes maintenance results.
 - Each session can be cleared independently.
 - Auto-generate creates sample messages through the same chat API a user uses.
+- The backend exposes an `ingestText` endpoint for direct non-chat text ingest.
 - A navbar help walkthrough explains the playground flow.
 - No login, signup, or authentication.
 
@@ -40,8 +41,9 @@ travel so the memory graph is easy to understand without a long technical setup.
 7. Use `Clear session` to reset only one side.
 
 Conflict and version behavior comes from memo-grafter's maintenance passes. In
-general, a conflict means two memories disagree, while a version update means a
-newer memory replaced an older one.
+memo-grafter `0.2.6`, conflict detection and versioning are separate lifecycle
+signals: a conflict means two active memories disagree, while a version update
+means a newer memory explicitly replaced an older one.
 
 ## Project Structure
 
@@ -139,6 +141,7 @@ memo-grafter owns the core memory behavior:
 - `getGraphSnapshot()` returns the graph data rendered by the frontend.
 - `absorbFromAgent()` powers cross-session grafting.
 - `MemoGrafterCrawler` runs conflict detection, versioning, and decay scoring.
+- `ingestText()` can ingest non-conversational text directly into the graph.
 
 The playground adds demo-specific glue around that core:
 
@@ -149,6 +152,8 @@ The playground adds demo-specific glue around that core:
 - It adapts display edges so grafted nodes connect to the closest local topic.
 - It filters stale display state so old maintenance metadata does not create
   misleading graph highlights.
+- It exposes `POST /ingest-text` as a backend extension point for future note or
+  document import UI.
 
 The backend does not use Prisma or another ORM. memo-grafter handles database
 access.

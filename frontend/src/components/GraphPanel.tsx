@@ -123,7 +123,7 @@ function shouldDisplayMemoryRelationshipEdge(
   }
 
   if (edge.edgeType === "conflicts") {
-    return !source.decayed && !target.decayed;
+    return isActiveMemory(source) && isActiveMemory(target);
   }
 
   if (edge.edgeType === "updates") {

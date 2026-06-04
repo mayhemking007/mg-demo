@@ -56,6 +56,14 @@ Health check:
 curl http://localhost:3001/health
 ```
 
+## API Notes
+
+- `POST /chat` sends conversational messages through `MemoGrafterAgent.invoke()`.
+- `POST /maintenance` runs memo-grafter crawler passes for conflicts, versions,
+  and decay.
+- `POST /ingest-text` calls memo-grafter `ingestText()` for direct non-chat text
+  ingest and returns the updated graph snapshot.
+
 ## Production
 
 Build and start:
