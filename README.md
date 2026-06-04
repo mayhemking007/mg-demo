@@ -1,79 +1,59 @@
 # MemoGrafter Playground
 
-MemoGrafter Playground is a full-stack demo app for exploring conversational
-memory with [memo-grafter](https://www.npmjs.com/package/memo-grafter). It turns
-ordinary chat messages into persisted topic nodes, typed memory nodes, graph
+MemoGrafter Playground is a full-stack demo for exploring conversational memory
+with [memo-grafter](https://www.npmjs.com/package/memo-grafter). It turns chat
+messages and direct text ingest into persisted topic nodes, memory nodes, graph
 edges, maintenance signals, and cross-session grafts.
 
 > **Live demo:** Check out the Playground [here](https://mgplayground-green.vercel.app/).
 
-The demo intentionally uses everyday prompts around food, music, film, and
-travel so the memory graph is easy to understand without a long technical setup.
+<p align="center">
+  <img
+    src="docs/assets/memografter-playground.png"
+    alt="MemoGrafter Playground UI"
+    style="border: 1px solid #30363d; border-radius: 8px;"
+  />
+</p>
 
-## Highlights
+## What It Shows
 
-- Two independent chat sessions run side by side.
-- Each session has its own graph and chat panel.
-- Browser-owned session ids are stored in `localStorage`.
-- Chat history and graph data persist in Postgres/pgvector through memo-grafter.
-- Topic nodes can be grafted from one session into the other.
-- Grafted topics bring their memories with them, so the target session can use
-  them later.
-- D3 renders temporal, semantic, reentry, grafted, memory, conflict, and version
-  update edges.
-- Memo-grafter maintenance crawler runs per session to detect decay, conflicts,
-  and version updates.
-- The graph-side `Detected` panel summarizes maintenance results.
-- Each session can be cleared independently.
-- Auto-generate creates sample messages through the same chat API a user uses.
-- The backend exposes an `ingestText` endpoint for direct non-chat text ingest.
-- A navbar help walkthrough explains the playground flow.
+- Two independent memory sessions side by side.
+- Chat history and graph data persisted in Postgres/pgvector through
+  memo-grafter.
+- D3 graph panels for topics, memories, temporal edges, semantic edges, reentry
+  edges, grafted edges, conflict edges, and version update edges.
+- Cross-session grafting, where one session can absorb a selected topic from the
+  other.
+- Maintenance crawler output for decay, conflicts, and version updates.
+- `POST /ingest-text` support for non-chat text ingestion via memo-grafter
+  `ingestText()`.
 - No login, signup, or authentication.
 
-## What To Try
+In memo-grafter `0.2.6`, conflict detection and versioning are separate memory
+lifecycle signals: conflicts mean active memories disagree, while version
+updates mean a newer memory replaced an older one.
 
-1. Click `Auto generate` in Session A or Session B.
-2. Wait for the graph to populate with topic and memory nodes.
-3. Click `Run Maintenance` when it starts pulsing.
-4. Hover graph nodes and maintenance edges to inspect what was detected.
-5. Select a topic node in one session and graft it into the other.
-6. Ask the target chat about the grafted information.
-7. Use `Clear session` to reset only one side.
-
-Conflict and version behavior comes from memo-grafter's maintenance passes. In
-memo-grafter `0.2.6`, conflict detection and versioning are separate lifecycle
-signals: a conflict means two active memories disagree, while a version update
-means a newer memory explicitly replaced an older one.
-
-## Project Structure
+## Stack
 
 ```txt
-dev-memory-assistant-project/
-  backend/    Node.js + TypeScript + Express + memo-grafter
-  frontend/   React + TypeScript + Vite + Tailwind CSS + D3
+backend/   Node.js + TypeScript + Express + memo-grafter
+frontend/  React + TypeScript + Vite + Tailwind CSS + D3
 ```
 
-There is no monorepo tooling. The backend and frontend are independent projects
-with separate `package.json` files. The root `package.json` only provides helper
-scripts for building both sides together.
+The backend and frontend are independent projects with separate `package.json`
+files. The root `package.json` only provides helper build scripts.
 
-## Quick Start
+## Local Setup
 
-Start Postgres locally:
+Start Postgres:
 
 ```bash
 cd backend
 docker-compose up -d
 ```
 
-Create backend env:
-
-```bash
-cd backend
-copy .env.example .env
-```
-
-Set `OPENAI_API_KEY` in `backend/.env`, then install and run:
+Create `backend/.env` from `backend/.env.example`, set `OPENAI_API_KEY`, then
+run:
 
 ```bash
 npm install
@@ -95,13 +75,13 @@ Defaults:
 
 ## Build
 
-Build both projects from the repository root:
+From the repository root:
 
 ```bash
 npm run build
 ```
 
-Or build each project separately:
+Or build each side separately:
 
 ```bash
 npm --prefix backend run build
@@ -110,7 +90,7 @@ npm --prefix frontend run build
 
 ## Environment
 
-Backend variables live in `backend/.env.example`:
+Backend:
 
 ```env
 DATABASE_URL=postgres://postgres:postgres@localhost:5432/dev_memory
@@ -121,7 +101,7 @@ RATE_LIMIT_ENABLED=false
 FRONTEND_URL=https://your-frontend-domain.com
 ```
 
-Frontend variables live in `frontend/.env.example`:
+Frontend:
 
 ```env
 VITE_BACKEND_URL=http://localhost:3001
@@ -129,51 +109,24 @@ VITE_DAILY_LIMIT=10
 VITE_RATE_LIMIT_ENABLED=false
 ```
 
-Rate limiting is disabled by default for demos. To enable it again, set both
-`RATE_LIMIT_ENABLED=true` and `VITE_RATE_LIMIT_ENABLED=true`.
-
-## How Memo-Grafter Is Used
-
-memo-grafter owns the core memory behavior:
-
-- `MemoGrafterAgent.invoke()` handles conversational memory-aware chat.
-- memo-grafter persists messages, topic nodes, memory nodes, and graph edges.
-- `getGraphSnapshot()` returns the graph data rendered by the frontend.
-- `absorbFromAgent()` powers cross-session grafting.
-- `MemoGrafterCrawler` runs conflict detection, versioning, and decay scoring.
-- `ingestText()` can ingest non-conversational text directly into the graph.
-
-The playground adds demo-specific glue around that core:
-
-- It maps browser `localStorage` ids to memo-grafter sessions.
-- It hydrates chat history from memo-grafter's persisted message buffer.
-- It presents two sessions in one UI so grafting is visible.
-- It copies grafted topic memories into the target view for a clearer demo.
-- It adapts display edges so grafted nodes connect to the closest local topic.
-- It filters stale display state so old maintenance metadata does not create
-  misleading graph highlights.
-- It exposes `POST /ingest-text` as a backend extension point for future note or
-  document import UI.
-
-The backend does not use Prisma or another ORM. memo-grafter handles database
-access.
+Rate limiting is disabled by default for easier demos.
 
 ## Deployment
 
-Recommended free demo setup:
+Recommended demo setup:
 
 - Frontend: Vercel
 - Backend: Render
 - Database: Neon Postgres with pgvector support
 
-Backend deployment:
+Backend settings:
 
 - Root directory: `backend`
 - Build command: `npm install && npm run build`
 - Start command: `npm start`
 - Required env: `DATABASE_URL`, `OPENAI_API_KEY`, `FRONTEND_URL`
 
-Frontend deployment:
+Frontend settings:
 
 - Root directory: `frontend`
 - Framework preset: Vite
@@ -181,31 +134,20 @@ Frontend deployment:
 - Output directory: `dist`
 - Required env: `VITE_BACKEND_URL`
 
-Production pairing:
+`FRONTEND_URL` must exactly match the deployed frontend origin for CORS.
 
-- Backend `FRONTEND_URL` must exactly match the frontend origin for CORS.
-- Frontend `VITE_BACKEND_URL` must point to the deployed backend origin.
+## Notes
 
-## Persistence Notes
+memo-grafter owns the core memory behavior: chat invocation, graph persistence,
+snapshot retrieval, grafting, crawler maintenance, and direct text ingest. The
+playground adds the two-session UI, local browser session ids, display shaping,
+and demo controls.
 
-The important data persists in Postgres:
+Persisted data lives in Postgres. In-memory Express agent instances reset on
+backend restart, but the browser can reload the same session id and recover the
+stored graph and chat history.
 
-- chat messages
-- topic nodes
-- memory nodes
-- topic edges
-- memory edges
-- graft registry entries
+More details:
 
-Express agent instances and rate-limit buckets are in memory and reset when the
-backend restarts. When the browser sends the same session id again, the backend
-recreates the agent and memo-grafter reloads persisted session data from the
-database.
-
-Per-session `Clear session` deletes that session's persisted chat and graph data
-and rotates only that browser session id. The other session is left unchanged.
-
-## Documentation
-
-- Backend setup and deployment: `backend/README.md`
-- Frontend setup and deployment: `frontend/README.md`
+- Backend docs: `backend/README.md`
+- Frontend docs: `frontend/README.md`
